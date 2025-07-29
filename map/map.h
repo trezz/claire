@@ -5,15 +5,18 @@
 #include <stdint.h>
 
 /*
- * Map is a generic in-memory key-value store.
- *
- * A map can be used as a set by setting the value size to 0 and omitting
- * the value when adding a key.
+ * A generic in-memory key-value store.
  */
 typedef void *map_t;
 
 /*
  * Returns a new map configured for the the given value size and capacity.
+ *
+ * Value size can be 0 if the map is used as a set (i.e. no values are stored).
+ *
+ * Capacity is the number of key-value pairs that can be stored in the map
+ * before it needs to be rehashed. If the capacity is 0, a default capacity
+ * is used.
  */
 map_t map_new(size_t value_len, size_t capacity);
 
@@ -53,9 +56,8 @@ int map_get(map_t map, const void *key, size_t key_len, void *dest);
 void map_set(map_t map, const void *key, size_t key_len, ...);
 
 /*
- * Retrieves the value associated with the given key.
- * A pointer to the value is returned if the key was found.
- * NULL is returned if the key was not found.
+ * Returns a pointer to the value associated with the given key if it exists,
+ * or NULL if the key is not found.
  */
 void *map_at(map_t map, const void *key, size_t key_len);
 
@@ -83,13 +85,13 @@ typedef struct {
 } map_it_t;
 
 /*
- * Iterate over the map.
- * The provided iterator must be initialized to zero before the first call.
- * The function moves the iterator to the next key/value pair of the map, or to
- * the first key/value pair if the iterator was just initialized.
- * If the function returns 0, the iteration reached the end of the map and the
- * iterator state is undefined, otherwise the iterator is pointing to a
- * key/value pair of the map.
+ * Iterate over the map by moving the iterator to the next key/value pair of the
+ * map, or to the first key/value pair if the iterator was just initialized.
+ * Returns 0 if the iteration reached the end of the map, a non-zero value
+ * otherwise.
+ *
+ * The given iterator must be initialized to zero before the first call, like:
+ *      map_it_t it = {0};
  */
 int map_iter(const map_t map, map_it_t *it);
 

@@ -8,12 +8,14 @@
 
 #include "../hash/hash.h"
 
+/*
+ * Configuration constants for the map implementation.
+ * These can be adjusted to optimize performance for specific use cases.
+ */
 #define HASH_SEED 13
 #define BUCKET_CAPA 8
 #define KEY_CAPA 1024
 #define MAP_MAX_LOAD_FACTOR 6.5
-#define KEY_SIZE_MIXED SIZE_MAX
-#define KEY_SIZE_UNKNOWN 0
 
 typedef struct bucket {
     size_t hash[BUCKET_CAPA];
@@ -51,6 +53,9 @@ typedef struct map {
     size_t keys_len;
     size_t keys_capacity;
 } map_s;
+
+#define KEY_SIZE_MIXED SIZE_MAX
+#define KEY_SIZE_UNKNOWN 0
 
 static void init_map(map_s* m, size_t value_len, size_t capacity) {
     size_t i = 0;
