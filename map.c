@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../hash/hash.h"
+#include "hash.h"
 
 /*
  * Configuration constants for the map implementation.
