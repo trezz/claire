@@ -1,5 +1,5 @@
-#ifndef HASH_H
-#define HASH_H
+#ifndef CLAIRE_HASH_H
+#define CLAIRE_HASH_H
 
 #include <stddef.h>
 
