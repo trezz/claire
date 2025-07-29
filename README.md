@@ -1,6 +1,6 @@
 # Claire
 
-A lightweight, no-dependency C89 library providing hash functions and hash maps for systems programming.
+A lightweight, no-dependency C89 library providing hash functions and hash maps.
 
 ## Features
 
@@ -11,7 +11,7 @@ Fast MurmurHash3 implementation optimized for 32-bit and 64-bit systems.
 - Configurable hash seeds
 - High performance
 
-### Map Module (`map.h`) 
+### Map Module (`map.h`)
 Generic hash table supporting arbitrary key-value types. Can also be used as a set.
 
 - Generic design for any data types
