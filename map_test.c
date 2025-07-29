@@ -44,7 +44,7 @@ static int test_keys(void) {
     /* Got using `cat ./map/testdata/keys | wc -l` */
     const size_t want_keys_count = 1623420;
 
-    FILE* f = fopen("./map/testdata/keys", "r");
+    FILE* f = fopen("./testdata/keys", "r");
     char line[1024];
     map_t keys_count = map_new(sizeof(size_t), 0);
     size_t count = 0;

@@ -7,15 +7,14 @@ DEBUG_CFLAGS = -ansi -pedantic -Wall -Wextra -g -O0 -DDEBUG -I.
 LDFLAGS =
 
 # Directories
-SRC_DIRS = hash map
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 BIN_DIR = $(BUILD_DIR)/bin
 LIB_DIR = $(BUILD_DIR)/lib
 
 # Source files
-HASH_SRCS = hash/hash.c
-MAP_SRCS = map/map.c
+HASH_SRCS = hash.c
+MAP_SRCS = map.c
 ALL_SRCS = $(HASH_SRCS) $(MAP_SRCS)
 
 # Object files
@@ -37,7 +36,6 @@ all: $(ALL_OBJS) $(STATIC_LIB)
 
 # Object files compilation
 $(OBJ_DIR)/%.o: %.c | $(OBJ_DIR)
-	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Debug object files
@@ -54,10 +52,10 @@ $(DEBUG_STATIC_LIB): $(ALL_OBJS:$(OBJ_DIR)/%.o=$(OBJ_DIR)/debug/%.o) | $(LIB_DIR
 	ar rcs $@ $^
 
 # Test compilation
-$(BIN_DIR)/hash_test: hash/hash_test.c $(OBJ_DIR)/hash/hash.o | $(BIN_DIR)
+$(BIN_DIR)/hash_test: hash_test.c $(OBJ_DIR)/hash.o | $(BIN_DIR)
 	$(CC) $(DEBUG_CFLAGS) $^ -o $@
 
-$(BIN_DIR)/map_test: map/map_test.c $(OBJ_DIR)/map/map.o $(OBJ_DIR)/hash/hash.o | $(BIN_DIR)
+$(BIN_DIR)/map_test: map_test.c $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o | $(BIN_DIR)
 	$(CC) $(DEBUG_CFLAGS) $^ -o $@
 
 # Create directories
@@ -134,8 +132,8 @@ help:
 
 # Pattern-based targets for individual modules
 .PHONY: hash map
-hash: $(OBJ_DIR)/hash/hash.o
-map: $(OBJ_DIR)/map/map.o $(OBJ_DIR)/hash/hash.o
+hash: $(OBJ_DIR)/hash.o
+map: $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o
 
 # Prevent deletion of intermediate files
 .PRECIOUS: $(OBJ_DIR)/%.o $(OBJ_DIR)/debug/%.o
