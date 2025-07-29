@@ -21,86 +21,79 @@ typedef struct bucket {
     struct bucket* next;
 } bucket_s;
 
+static void init_bucket(bucket_s* b, size_t value_len) {
+    b->values = malloc(value_len * BUCKET_CAPA);
+    assert(b->values != NULL && "Failed to allocate memory for bucket values");
+    b->len = 0;
+    b->next = NULL;
+}
+
+static void deinit_bucket(bucket_s* b) {
+    free(b->values);
+    if (b->next != NULL) {
+        deinit_bucket(b->next);
+    }
+}
+
 typedef struct map {
+    size_t hash_seed;
     size_t value_len;
     size_t capacity;
-
     size_t len;
+
     size_t nb_buckets;
     bucket_s* buckets;
 
-    size_t hash_seed;
     char* keys;
     size_t keys_len;
     size_t keys_capacity;
 } map_s;
 
-static void init_bucket(const map_s* m, bucket_s* b) {
-    b->values = malloc(m->value_len * BUCKET_CAPA);
-    assert(b->values != NULL && "Failed to allocate memory for bucket values");
-
-    b->len = 0;
-    b->next = NULL;
-}
-
-map_t map_new(size_t value_len, size_t capacity) {
-    map_s* m = NULL;
+static void init_map(map_s* m, size_t value_len, size_t capacity) {
     size_t i = 0;
 
-    m = malloc(sizeof(map_s));
-    assert(m != NULL && "Failed to allocate memory for map");
-
+    m->hash_seed = HASH_SEED;
     m->value_len = value_len;
-    m->capacity = capacity == 0 ? 8 : capacity;
-    while (m->capacity % 8 != 0) {
+    m->capacity = capacity == 0 ? BUCKET_CAPA : capacity;
+    while (m->capacity % BUCKET_CAPA != 0) {
         ++m->capacity;
     }
-
     m->len = 0;
 
-    m->hash_seed = HASH_SEED;
     m->nb_buckets = m->capacity / BUCKET_CAPA;
     m->buckets = malloc(sizeof(bucket_s) * m->nb_buckets);
     assert(m->buckets != NULL && "Failed to allocate memory for map buckets");
 
+    m->keys = malloc(KEY_CAPA);
+    assert(m->keys != NULL && "Failed to allocate memory for map keys");
     m->keys_len = 0;
     m->keys_capacity = KEY_CAPA;
-    m->keys = malloc(m->keys_capacity);
-    assert(m->keys != NULL && "Failed to allocate memory for map keys");
 
     for (i = 0; i < m->nb_buckets; ++i) {
-        init_bucket(m, &m->buckets[i]);
+        init_bucket(&m->buckets[i], value_len);
     }
-
-    return m;
 }
 
-/*
- * Frees the memory used by the map but not the map itself.
- * This is useful to free the map data without losing the map structure.
- */
-static void free_map_data(map_s* m) {
+static void deinit_map(map_s* m) {
     size_t i = 0;
-
     for (i = 0; i < m->nb_buckets; ++i) {
-        bucket_s* b = &m->buckets[i];
-        free(b->values);
-        b = b->next;
-        while (b != NULL) {
-            bucket_s* cur = b;
-            free(cur->values);
-            b = cur->next;
-            free(cur);
-        }
+        deinit_bucket(&m->buckets[i]);
     }
-
     free(m->buckets);
     free(m->keys);
 }
 
+map_t map_new(size_t value_len, size_t capacity) {
+    map_s* m = NULL;
+    m = malloc(sizeof(map_s));
+    assert(m != NULL && "Failed to allocate memory for map");
+    init_map(m, value_len, capacity);
+    return m;
+}
+
 void map_free(map_t map) {
     map_s* m = map;
-    free_map_data(m);
+    deinit_map(m);
     free(m);
 }
 
@@ -129,11 +122,12 @@ static int find_bucket_pos(const map_s* m, const char* key, size_t key_len,
 
     while (1) {
         for (i = 0; i < b->len; ++i) {
-            if (h == b->hash[i]) {
-                const char* bkey = m->keys + b->key_positions[i];
-                if (strncmp(key, bkey, key_len) != 0) {
-                    continue;
-                }
+            const char* bkey = NULL;
+            if (h != b->hash[i]) {
+                continue;
+            }
+            bkey = m->keys + b->key_positions[i];
+            if (!strncmp(key, bkey, key_len)) {
                 break;
             }
         }
@@ -234,7 +228,7 @@ static void insert(map_s* m, const char* key, size_t key_len,
     if (pos == BUCKET_CAPA) {
         b->next = malloc(sizeof(bucket_s));
         assert(b->next != NULL && "Failed to allocate memory for new bucket");
-        init_bucket(m, b->next);
+        init_bucket(b->next, m->value_len);
         b = b->next;
         pos = 0;
     }
@@ -252,35 +246,28 @@ static void insert(map_s* m, const char* key, size_t key_len,
  * NULL is returned in case of error.
  */
 static void rehash(map_s* m) {
-    map_s* n = map_new(m->value_len, m->capacity * 2);
-    map_iterator_t it = map_iterator(m);
-    while (map_iterator_next(&it)) {
-        insert(n, it.key, it.key_len, it.val_ptr);
+    map_s tmp;
+    map_iterator_t it;
+    init_map(&tmp, m->value_len, m->capacity * 2);
+    for (it = map_iterator(m); map_iterator_next(&it);) {
+        insert(&tmp, it.key, it.key_len, it.val_ptr);
     }
-
-    free_map_data(m);
-    memcpy(m, n, sizeof(map_s));
-    free(n);
-}
-
-void map_addp(map_t map, const void* key, size_t key_len, const void* ptr) {
-    map_s* m = map;
-    double load_factor = (double)(m->len);
-
-    load_factor /= (double)m->nb_buckets;
-    if (load_factor > MAP_MAX_LOAD_FACTOR) {
-        rehash(m);
-    }
-    insert(m, key, key_len, ptr);
+    deinit_map(m);
+    memcpy(m, &tmp, sizeof(map_s));
 }
 
 void map_add(map_t map, const void* key, size_t key_len, ...) {
     map_s* m = map;
+    const double load_factor = (double)(m->len) / (double)m->nb_buckets;
     int8_t i8 = 0;
     int16_t i16 = 0;
     int32_t i32 = 0;
     int64_t i64 = 0;
     va_list args;
+
+    if (load_factor > MAP_MAX_LOAD_FACTOR) {
+        rehash(m);
+    }
 
     va_start(args, key_len);
     i64 = va_arg(args, int64_t);
@@ -289,52 +276,18 @@ void map_add(map_t map, const void* key, size_t key_len, ...) {
     switch (m->value_len) {
         case sizeof(int8_t):
             i8 = (int8_t)i64;
-            map_addp(m, key, key_len, &i8);
+            insert(m, key, key_len, &i8);
             return;
         case sizeof(int16_t):
             i16 = (int16_t)i64;
-            map_addp(m, key, key_len, &i16);
+            insert(m, key, key_len, &i16);
             return;
         case sizeof(int32_t):
             i32 = (int32_t)i64;
-            map_addp(m, key, key_len, &i32);
+            insert(m, key, key_len, &i32);
             return;
         case sizeof(int64_t):
-            map_addp(m, key, key_len, &i64);
-            return;
-        default:
-            assert(0 && "unsupported value data size");
-    }
-}
-
-void map_adds(map_t map, const char* key, ...) {
-    map_s* m = map;
-    const size_t key_len = strlen(key);
-    int8_t i8 = 0;
-    int16_t i16 = 0;
-    int32_t i32 = 0;
-    int64_t i64 = 0;
-    va_list args;
-
-    va_start(args, key);
-    i64 = va_arg(args, int64_t);
-    va_end(args);
-
-    switch (m->value_len) {
-        case sizeof(int8_t):
-            i8 = (int8_t)i64;
-            map_addp(m, key, key_len, &i8);
-            return;
-        case sizeof(int16_t):
-            i16 = (int16_t)i64;
-            map_addp(m, key, key_len, &i16);
-            return;
-        case sizeof(int32_t):
-            i32 = (int32_t)i64;
-            map_addp(m, key, key_len, &i32);
-            return;
-        case sizeof(int64_t):
-            map_addp(m, key, key_len, &i64);
+            insert(m, key, key_len, &i64);
             return;
         default:
             assert(0 && "unsupported value data size");
@@ -366,13 +319,14 @@ int map_iterator_next(map_iterator_t* it) {
     while (it->_bpos < m->nb_buckets) {
         bucket_s* b = it->_b;
         for (; b != NULL; it->_b = b = b->next, it->_kpos = 0) {
-            if (it->_kpos < b->len) {
-                it->key = m->keys + b->key_positions[it->_kpos];
-                it->key_len = strlen(it->key);
-                it->val_ptr = bucket_val(m, b, it->_kpos);
-                ++it->_kpos;
-                return 1;
+            if (it->_kpos >= b->len) {
+                continue;
             }
+            it->key = m->keys + b->key_positions[it->_kpos];
+            it->key_len = strlen(it->key);
+            it->val_ptr = bucket_val(m, b, it->_kpos);
+            ++it->_kpos;
+            return 1;
         }
         it->_kpos = 0;
         if (++it->_bpos == m->nb_buckets) {

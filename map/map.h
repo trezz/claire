@@ -30,7 +30,6 @@ size_t map_len(map_t map);
  * Returns 0 if the key was not found, a non-zero value otherwise.
  */
 int map_get(map_t map, const void *key, size_t key_len, void *dest);
-#define map_gets(map, key, dest) map_getl((map), (key), strlen(key), (dest))
 
 /*
  * Retrieves the value associated with the given key.
@@ -38,28 +37,18 @@ int map_get(map_t map, const void *key, size_t key_len, void *dest);
  * NULL is returned if the key was not found.
  */
 void *map_at(map_t map, const void *key, size_t key_len);
-#define map_ats(map, key) map_at((map), (key), strlen(key))
 
 /*
  * Deletes the key-value pair associated with the given key.
  * Returns 0 if the key was not found, a non-zero value otherwise.
  */
 int map_del(map_t map, const void *key, size_t key_len);
-#define map_dels(map, key) map_del((map), (key), strlen(key))
-
-/*
- * Adds the given key and the associated value pointed to by ptr in the map.
- * Use this function to map strings to structured values like structs or arrays.
- */
-void map_addp(map_t map, const void *key, size_t key_len, const void *ptr);
-#define map_addps(map, key, ptr) map_addp((map), (key), strlen(key), (ptr))
 
 /*
  * Adds the given key and the associated value passed by value in the map.
  * Use this function to map strings to literal values like integers or pointers.
  */
 void map_add(map_t map, const void *key, size_t key_len, ...);
-void map_adds(map_t map, const char *key, ...);
 
 /*
  * An iterator on a map.
