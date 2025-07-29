@@ -36,6 +36,7 @@ static void deinit_bucket(bucket_s* b) {
     free(b->values);
     if (b->next != NULL) {
         deinit_bucket(b->next);
+        free(b->next);
     }
 }
 
