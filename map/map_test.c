@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int test_abc(void) {
@@ -13,7 +14,7 @@ static int test_abc(void) {
     map_t m = map_new(sizeof(char), 0);
 
     while (k <= 'z') {
-        map_add(m, &k, 1, k);
+        map_set(m, &k, 1, k);
         ++k;
     }
 
@@ -47,7 +48,7 @@ static int test_keys(void) {
     char line[1024];
     map_t keys_count = map_new(sizeof(size_t), 0);
     size_t count = 0;
-    map_iterator_t it;
+    map_it_t it = {0};
 
     while (fgets(line, sizeof(line), f) != NULL) {
         const size_t len = strlen(line);
@@ -55,7 +56,7 @@ static int test_keys(void) {
         if (c) {
             ++(*c);
         } else {
-            map_add(keys_count, line, len, 1);
+            map_set(keys_count, line, len, 1);
         }
     }
     fclose(f);
@@ -67,8 +68,8 @@ static int test_keys(void) {
         return 1;
     }
 
-    for (it = map_iterator(keys_count); map_iterator_next(&it);) {
-        count += *(size_t*)it.val_ptr;
+    while (map_iter(keys_count, &it)) {
+        count += *(size_t*)it.value;
     }
 
     if (count != want_keys_count) {
@@ -82,11 +83,46 @@ static int test_keys(void) {
     return 0;
 }
 
+int test_intset(void) {
+    size_t keys[100];
+    map_t m = map_new(0, 0);
+    int i = 0;
+    size_t present[100] = {0};
+    size_t want_count = 0;
+
+    for (i = 0; i < 100; ++i) {
+        keys[i] = rand() % 100;
+        present[keys[i]] = 1;
+    }
+
+    for (i = 0; i < 100; ++i) {
+        if (present[i]) {
+            ++want_count;
+        }
+    }
+    for (i = 0; i < 100; ++i) {
+        map_set(m, &keys[i], sizeof(size_t));
+    }
+
+    if (map_len(m) != want_count) {
+        printf("Map length mismatch: want %zu, got %zu\n", want_count,
+               map_len(m));
+        map_free(m);
+        return 1;
+    }
+
+    map_free(m);
+    return 0;
+}
+
 int main(void) {
     if (test_abc() != 0) {
         return 1;
     }
     if (test_keys() != 0) {
+        return 1;
+    }
+    if (test_intset() != 0) {
         return 1;
     }
     return 0;
