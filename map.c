@@ -85,6 +85,10 @@ static void deinit_map(map_s* m) {
 
 map_t map_new(size_t value_len, size_t capacity) {
     map_s* m = NULL;
+
+    assert(value_len <= MAX_VALUE_SIZE &&
+           "Value size must not exceed the maximum supported size");
+
     m = malloc(sizeof(map_s));
     assert(m != NULL && "Failed to allocate memory for map");
     init_map(m, value_len, capacity);

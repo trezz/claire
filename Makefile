@@ -15,15 +15,17 @@ LIB_DIR = $(BUILD_DIR)/lib
 # Source files
 HASH_SRCS = hash.c
 MAP_SRCS = map.c
-ALL_SRCS = $(HASH_SRCS) $(MAP_SRCS)
+VEC_SRCS = vec.c
+ALL_SRCS = $(HASH_SRCS) $(MAP_SRCS) $(VEC_SRCS)
 
 # Object files
 HASH_OBJS = $(HASH_SRCS:%.c=$(OBJ_DIR)/%.o)
 MAP_OBJS = $(MAP_SRCS:%.c=$(OBJ_DIR)/%.o)
+VEC_OBJS = $(VEC_SRCS:%.c=$(OBJ_DIR)/%.o)
 ALL_OBJS = $(ALL_SRCS:%.c=$(OBJ_DIR)/%.o)
 
 # Test files
-TEST_BINS = $(BIN_DIR)/hash_test $(BIN_DIR)/map_test
+TEST_BINS = $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
 
 # Library files
 LIBNAME = libclaire
@@ -58,6 +60,9 @@ $(BIN_DIR)/hash_test: hash_test.c $(OBJ_DIR)/hash.o | $(BIN_DIR)
 $(BIN_DIR)/map_test: map_test.c $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o | $(BIN_DIR)
 	$(CC) $(DEBUG_CFLAGS) $^ -o $@
 
+$(BIN_DIR)/vec_test: vec_test.c $(OBJ_DIR)/vec.o | $(BIN_DIR)
+	$(CC) $(DEBUG_CFLAGS) $^ -o $@
+
 # Create directories
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -83,11 +88,13 @@ lib-debug: $(DEBUG_STATIC_LIB)
 
 # Test targets
 .PHONY: test
-test: $(BIN_DIR)/hash_test $(BIN_DIR)/map_test
+test: $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
 	@echo "Running hash tests..."
 	@$(BIN_DIR)/hash_test
 	@echo "Running map tests..."
 	@$(BIN_DIR)/map_test
+	@echo "Running vec tests..."
+	@$(BIN_DIR)/vec_test
 
 .PHONY: test-hash
 test-hash: $(BIN_DIR)/hash_test
@@ -98,6 +105,11 @@ test-hash: $(BIN_DIR)/hash_test
 test-map: $(BIN_DIR)/map_test
 	@echo "Running map tests..."
 	@$(BIN_DIR)/map_test
+
+.PHONY: test-vec
+test-vec: $(BIN_DIR)/vec_test
+	@echo "Running vec tests..."
+	@$(BIN_DIR)/vec_test
 
 # Clean targets
 .PHONY: clean
@@ -120,8 +132,10 @@ help:
 	@echo "  test       - Build and run all tests"
 	@echo "  test-hash  - Build and run hash tests only"
 	@echo "  test-map   - Build and run map tests only"
+	@echo "  test-vec   - Build and run vec tests only"
 	@echo "  hash       - Build hash module object file"
 	@echo "  map        - Build map module object file"
+	@echo "  vec        - Build vec module object file"
 	@echo "  clean      - Remove build directory"
 	@echo "  distclean  - Alias for clean"
 	@echo "  help       - Show this help message"
@@ -131,9 +145,10 @@ help:
 	@echo "  CFLAGS     - Compiler flags"
 
 # Pattern-based targets for individual modules
-.PHONY: hash map
+.PHONY: hash map vec
 hash: $(OBJ_DIR)/hash.o
 map: $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o
+vec: $(OBJ_DIR)/vec.o
 
 # Prevent deletion of intermediate files
 .PRECIOUS: $(OBJ_DIR)/%.o $(OBJ_DIR)/debug/%.o
