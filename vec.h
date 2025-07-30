@@ -13,9 +13,15 @@ size_t vec_len(const void *vec);
 
 size_t vec_capacity(const void *vec);
 
-void vec_reserve(void *vec_ptr, size_t capacity);
+#define vec_resize(vec_ptr, len) \
+    _vec_resize((vec_ptr), sizeof(*(vec_ptr)), (len))
 
-void vec_resize(void *vec_ptr, size_t len);
+void _vec_reserve(void *vec_ptr, size_t value_size, size_t capacity);
+
+#define vec_reserve(vec_ptr, capacity) \
+    _vec_reserve((vec_ptr), sizeof(*(vec_ptr)), (capacity))
+
+void _vec_resize(void *vec_ptr, size_t value_size, size_t len);
 
 #define CLAIRE_VEC_JOIN2(a, b, c) a##b##c
 #define CLAIRE_VEC_JOIN(a, b, c) CLAIRE_VEC_JOIN2(a, b, c)

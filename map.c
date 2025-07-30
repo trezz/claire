@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "buffer.h"
 #include "hash.h"
 
 /*
@@ -35,9 +36,7 @@ typedef struct map {
     size_t nb_buckets;
     bucket_s* buckets;
 
-    char* keys;
-    size_t keys_len;
-    size_t keys_capacity;
+    buffer_t keys;
 } map_s;
 
 #define KEY_SIZE_MIXED SIZE_MAX
@@ -59,10 +58,8 @@ static void init_map(map_s* m, size_t value_len, size_t capacity) {
     m->buckets = malloc(sizeof(bucket_s) * m->nb_buckets);
     assert(m->buckets != NULL && "Failed to allocate memory for map buckets");
 
-    m->keys = malloc(KEY_CAPA);
-    assert(m->keys != NULL && "Failed to allocate memory for map keys");
-    m->keys_len = 0;
-    m->keys_capacity = KEY_CAPA;
+    buffer_init(&m->keys);
+    buffer_grow(&m->keys, KEY_CAPA);
 
     for (i = 0; i < m->nb_buckets; ++i) {
         memset(&m->buckets[i], 0, sizeof(bucket_s));
@@ -79,8 +76,8 @@ static void deinit_map(map_s* m) {
             b->next = next;
         }
     }
+    buffer_free(&m->keys);
     free(m->buckets);
-    free(m->keys);
 }
 
 map_t map_new(size_t value_len, size_t capacity) {
@@ -148,7 +145,7 @@ static elem_s find_key(const map_s* m, const key_s* k) {
             if (k->hash != b->hashes[i]) {
                 continue;
             }
-            bkey = m->keys + b->keys[i];
+            bkey = m->keys.data + b->keys[i];
             if (!strncmp(k->data, bkey, k->len)) {
                 break;
             }
@@ -181,26 +178,6 @@ int map_get(const map_t map, const void* key, size_t key_len, void* dest) {
 }
 
 /*
- * Appends the given key in the keys buffer of the map and returns its position.
- */
-static size_t append_new_key(map_s* m, const key_s* k) {
-    size_t key_pos = 0;
-
-    while (m->keys_len + k->len + 1 > m->keys_capacity) {
-        m->keys_capacity *= 2;
-        m->keys = realloc(m->keys, m->keys_capacity);
-        assert(m->keys != NULL && "Failed to reallocate memory for map keys");
-    }
-
-    key_pos = m->keys_len;
-    memcpy(m->keys + key_pos, k->data, k->len);
-    m->keys[key_pos + k->len] = '\0';
-    m->keys_len += k->len + 1;
-
-    return key_pos;
-}
-
-/*
  * Insert a new key/value pair in the map and return a pointer to the map.
  */
 static void insert(map_s* m, const key_s* k, const void* v) {
@@ -225,7 +202,10 @@ static void insert(map_s* m, const key_s* k, const void* v) {
         memcpy(bucket_val(m, b, elem.pos), v, m->value_len);
     }
     b->hashes[elem.pos] = k->hash;
-    b->keys[elem.pos] = append_new_key(m, k);
+
+    b->keys[elem.pos] = buffer_len(&m->keys);
+    buffer_write(&m->keys, k->data, k->len);
+    buffer_write_char(&m->keys, 0);
 
     if (m->key_size == KEY_SIZE_UNKNOWN) {
         m->key_size = k->len;
@@ -346,7 +326,7 @@ int map_iter(const map_t map, map_it_t* it) {
             if (it->_kpos >= b->len) {
                 continue;
             }
-            it->key = m->keys + b->keys[it->_kpos];
+            it->key = m->keys.data + b->keys[it->_kpos];
             it->key_len = (m->key_size == KEY_SIZE_MIXED ||
                            m->key_size == KEY_SIZE_UNKNOWN)
                               ? (size_t)strlen(it->key)

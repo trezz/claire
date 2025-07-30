@@ -55,8 +55,6 @@ void *_vec_new(size_t value_size, size_t len, size_t capacity) {
 
     assert(len <= capacity && "Length must be less than or equal to capacity");
     assert(value_size > 0 && "Value size must be greater than 0");
-    assert(value_size <= sizeof(int64_t) &&
-           "Value size must not exceed 64 bits");
 
     h = extend_header(NULL, value_size, capacity);
     h->value_size = value_size;
@@ -71,20 +69,44 @@ void vec_free(void *vec) {
     free(header(vec));
 }
 
-size_t vec_len(const void *vec) { return header(vec)->len; }
+size_t vec_len(const void *vec) {
+    if (vec == NULL) {
+        return 0;
+    }
+    return header(vec)->len;
+}
 
-size_t vec_capacity(const void *vec) { return header(vec)->cap; }
+size_t vec_capacity(const void *vec) {
+    if (vec == NULL) {
+        return 0;
+    }
+    return header(vec)->cap;
+}
 
-void vec_reserve(void *vec_ptr, size_t capacity) {
+void _vec_reserve(void *vec_ptr, size_t value_size, size_t capacity) {
     void **vp = vec_ptr;
-    header_s *h = header(*vp);
+    header_s *h = NULL;
+
+    if (*vp == NULL) {
+        *vp = _vec_new(value_size, 0, capacity);
+        return;
+    }
+
+    h = header(*vp);
     h = extend_header(h, h->value_size, capacity);
     *vp = h + 1;
 }
 
-void vec_resize(void *vec_ptr, size_t len) {
+void _vec_resize(void *vec_ptr, size_t value_size, size_t len) {
     void **vp = vec_ptr;
-    header_s *h = header(*vp);
+    header_s *h = NULL;
+
+    if (*vp == NULL) {
+        *vp = _vec_new(value_size, len, len);
+        return;
+    }
+
+    h = header(*vp);
 
     if (len <= h->cap) {
         h->len = len;

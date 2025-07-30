@@ -4,7 +4,6 @@
 CC = gcc
 CFLAGS = -ansi -pedantic -Wall -Wextra -O2 -I.
 DEBUG_CFLAGS = -ansi -pedantic -Wall -Wextra -g -O0 -DDEBUG -I.
-LDFLAGS =
 
 # Directories
 BUILD_DIR = build
@@ -13,81 +12,69 @@ BIN_DIR = $(BUILD_DIR)/bin
 LIB_DIR = $(BUILD_DIR)/lib
 
 # Source files
-HASH_SRCS = hash.c
-MAP_SRCS = map.c
-VEC_SRCS = vec.c
-ALL_SRCS = $(HASH_SRCS) $(MAP_SRCS) $(VEC_SRCS)
+SRCS = hash.c map.c vec.c buffer.c
+OBJS = $(SRCS:%.c=$(OBJ_DIR)/%.o)
+DEBUG_OBJS = $(SRCS:%.c=$(OBJ_DIR)/debug/%.o)
 
-# Object files
-HASH_OBJS = $(HASH_SRCS:%.c=$(OBJ_DIR)/%.o)
-MAP_OBJS = $(MAP_SRCS:%.c=$(OBJ_DIR)/%.o)
-VEC_OBJS = $(VEC_SRCS:%.c=$(OBJ_DIR)/%.o)
-ALL_OBJS = $(ALL_SRCS:%.c=$(OBJ_DIR)/%.o)
-
-# Test files
-TEST_BINS = $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
-
-# Library files
+# Libraries
 LIBNAME = libclaire
 STATIC_LIB = $(LIB_DIR)/$(LIBNAME).a
-DEBUG_STATIC_LIB = $(LIB_DIR)/$(LIBNAME)-debug.a
+DEBUG_LIB = $(LIB_DIR)/$(LIBNAME)-debug.a
 
 # Default target
 .PHONY: all
-all: $(ALL_OBJS) $(STATIC_LIB)
+all: $(STATIC_LIB)
 
-# Object files compilation
+# Libraries
+$(STATIC_LIB): $(OBJS) | $(LIB_DIR)
+	ar rcs $@ $^
+
+$(DEBUG_LIB): $(DEBUG_OBJS) | $(LIB_DIR)
+	ar rcs $@ $^
+
+# Object files
 $(OBJ_DIR)/%.o: %.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Debug object files
 $(OBJ_DIR)/debug/%.o: %.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(DEBUG_CFLAGS) -c $< -o $@
 
-# Static library creation
-$(STATIC_LIB): $(ALL_OBJS) | $(LIB_DIR)
-	ar rcs $@ $^
+# Test binaries (mode depends on TEST_MODE variable)
+TEST_MODE ?= prod
+ifeq ($(TEST_MODE),debug)
+    TEST_CFLAGS = $(DEBUG_CFLAGS)
+    TEST_HASH_DEPS = $(OBJ_DIR)/debug/hash.o
+    TEST_MAP_DEPS = $(OBJ_DIR)/debug/map.o $(OBJ_DIR)/debug/hash.o $(OBJ_DIR)/debug/buffer.o $(OBJ_DIR)/debug/vec.o
+    TEST_VEC_DEPS = $(OBJ_DIR)/debug/vec.o
+else
+    TEST_CFLAGS = $(CFLAGS)
+    TEST_HASH_DEPS = $(OBJ_DIR)/hash.o
+    TEST_MAP_DEPS = $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o $(OBJ_DIR)/buffer.o $(OBJ_DIR)/vec.o
+    TEST_VEC_DEPS = $(OBJ_DIR)/vec.o
+endif
 
-# Debug static library creation
-$(DEBUG_STATIC_LIB): $(ALL_OBJS:$(OBJ_DIR)/%.o=$(OBJ_DIR)/debug/%.o) | $(LIB_DIR)
-	ar rcs $@ $^
+$(BIN_DIR)/hash_test: hash_test.c $(TEST_HASH_DEPS) | $(BIN_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
 
-# Test compilation
-$(BIN_DIR)/hash_test: hash_test.c $(OBJ_DIR)/hash.o | $(BIN_DIR)
-	$(CC) $(DEBUG_CFLAGS) $^ -o $@
+$(BIN_DIR)/map_test: map_test.c $(TEST_MAP_DEPS) | $(BIN_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
 
-$(BIN_DIR)/map_test: map_test.c $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o | $(BIN_DIR)
-	$(CC) $(DEBUG_CFLAGS) $^ -o $@
+$(BIN_DIR)/vec_test: vec_test.c $(TEST_VEC_DEPS) | $(BIN_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@
 
-$(BIN_DIR)/vec_test: vec_test.c $(OBJ_DIR)/vec.o | $(BIN_DIR)
-	$(CC) $(DEBUG_CFLAGS) $^ -o $@
+# Directories
+$(BUILD_DIR) $(OBJ_DIR) $(BIN_DIR) $(LIB_DIR):
+	mkdir -p $@
 
-# Create directories
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
-
-$(OBJ_DIR): | $(BUILD_DIR)
-	mkdir -p $(OBJ_DIR)
-
-$(BIN_DIR): | $(BUILD_DIR)
-	mkdir -p $(BIN_DIR)
-
-$(LIB_DIR): | $(BUILD_DIR)
-	mkdir -p $(LIB_DIR)
-
-# Debug build
-.PHONY: debug
-debug: CFLAGS = $(DEBUG_CFLAGS)
-debug: $(ALL_OBJS:$(OBJ_DIR)/%.o=$(OBJ_DIR)/debug/%.o) $(DEBUG_STATIC_LIB)
-
-# Library targets
-.PHONY: lib lib-debug
+# High-level targets
+.PHONY: lib lib-debug debug
 lib: $(STATIC_LIB)
-lib-debug: $(DEBUG_STATIC_LIB)
+lib-debug: $(DEBUG_LIB)
+debug: $(DEBUG_LIB)
 
 # Test targets
-.PHONY: test
+.PHONY: test test-debug
 test: $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
 	@echo "Running hash tests..."
 	@$(BIN_DIR)/hash_test
@@ -96,59 +83,80 @@ test: $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
 	@echo "Running vec tests..."
 	@$(BIN_DIR)/vec_test
 
-.PHONY: test-hash
-test-hash: $(BIN_DIR)/hash_test
+test-debug: clean-tests
+	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
+	@echo "Running hash tests (debug)..."
+	@$(BIN_DIR)/hash_test
+	@echo "Running map tests (debug)..."
+	@$(BIN_DIR)/map_test
+	@echo "Running vec tests (debug)..."
+	@$(BIN_DIR)/vec_test
+
+# Individual test targets
+.PHONY: hash_test map_test vec_test hash_test-debug map_test-debug vec_test-debug
+hash_test: $(BIN_DIR)/hash_test
 	@echo "Running hash tests..."
 	@$(BIN_DIR)/hash_test
 
-.PHONY: test-map
-test-map: $(BIN_DIR)/map_test
+map_test: $(BIN_DIR)/map_test
 	@echo "Running map tests..."
 	@$(BIN_DIR)/map_test
 
-.PHONY: test-vec
-test-vec: $(BIN_DIR)/vec_test
+vec_test: $(BIN_DIR)/vec_test
 	@echo "Running vec tests..."
 	@$(BIN_DIR)/vec_test
 
+hash_test-debug: clean-tests
+	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/hash_test
+	@echo "Running hash tests (debug)..."
+	@$(BIN_DIR)/hash_test
+
+map_test-debug: clean-tests
+	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/map_test
+	@echo "Running map tests (debug)..."
+	@$(BIN_DIR)/map_test
+
+vec_test-debug: clean-tests
+	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/vec_test
+	@echo "Running vec tests (debug)..."
+	@$(BIN_DIR)/vec_test
+
+# Module targets
+.PHONY: hash map vec buffer
+hash: $(OBJ_DIR)/hash.o
+map: $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o
+vec: $(OBJ_DIR)/vec.o
+buffer: $(OBJ_DIR)/buffer.o $(OBJ_DIR)/vec.o
+
 # Clean targets
-.PHONY: clean
+.PHONY: clean clean-tests
 clean:
 	rm -rf $(BUILD_DIR)
 
-.PHONY: distclean
-distclean: clean
+clean-tests:
+	rm -f $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
 
-# Help target
+# Help
 .PHONY: help
 help:
 	@echo "Claire Project Makefile"
 	@echo ""
-	@echo "Available targets:"
-	@echo "  all        - Build all object files and production library (default)"
-	@echo "  debug      - Build debug object files and debug library"
-	@echo "  lib        - Build production static library"
-	@echo "  lib-debug  - Build debug static library"
-	@echo "  test       - Build and run all tests"
-	@echo "  test-hash  - Build and run hash tests only"
-	@echo "  test-map   - Build and run map tests only"
-	@echo "  test-vec   - Build and run vec tests only"
-	@echo "  hash       - Build hash module object file"
-	@echo "  map        - Build map module object file"
-	@echo "  vec        - Build vec module object file"
-	@echo "  clean      - Remove build directory"
-	@echo "  distclean  - Alias for clean"
-	@echo "  help       - Show this help message"
+	@echo "Main targets:"
+	@echo "  all          - Build production library (default)"
+	@echo "  lib          - Build production library"
+	@echo "  lib-debug    - Build debug library"
+	@echo "  test         - Build and run all tests (production)"
+	@echo "  test-debug   - Build and run all tests (debug)"
 	@echo ""
-	@echo "Variables:"
-	@echo "  CC         - C compiler (default: gcc)"
-	@echo "  CFLAGS     - Compiler flags"
+	@echo "Individual tests:"
+	@echo "  hash_test, map_test, vec_test - Run specific test (production)"
+	@echo "  hash_test-debug, map_test-debug, vec_test-debug - Debug versions"
+	@echo ""
+	@echo "Modules:"
+	@echo "  hash, map, vec, buffer - Build individual modules"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  clean        - Remove all build files"
+	@echo "  help         - Show this help"
 
-# Pattern-based targets for individual modules
-.PHONY: hash map vec
-hash: $(OBJ_DIR)/hash.o
-map: $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o
-vec: $(OBJ_DIR)/vec.o
-
-# Prevent deletion of intermediate files
 .PRECIOUS: $(OBJ_DIR)/%.o $(OBJ_DIR)/debug/%.o
