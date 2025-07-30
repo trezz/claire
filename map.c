@@ -12,36 +12,21 @@
  * Configuration constants for the map implementation.
  * These can be adjusted to optimize performance for specific use cases.
  */
-#define HASH_SEED 13
-#define BUCKET_CAPA 8
-#define KEY_CAPA 1024
-#define MAP_MAX_LOAD_FACTOR 6.5
+#define BUCKET_CAPA 8           /* Number of key-value pairs per bucket */
+#define KEY_CAPA 1024           /* Initial capacity for the keys buffer */
+#define MAP_MAX_LOAD_FACTOR 6.5 /* Maximum load factor before rehashing */
+#define MAX_VALUE_SIZE sizeof(int64_t) /* Maximum value size supported */
 
 typedef struct bucket {
     size_t hash[BUCKET_CAPA];
     size_t key_positions[BUCKET_CAPA];
-    char* values;
+    char values[BUCKET_CAPA * MAX_VALUE_SIZE];
     size_t len;
     struct bucket* next;
 } bucket_s;
 
-static void init_bucket(bucket_s* b, size_t value_len) {
-    b->values = malloc(value_len * BUCKET_CAPA);
-    assert(b->values != NULL && "Failed to allocate memory for bucket values");
-    b->len = 0;
-    b->next = NULL;
-}
-
-static void deinit_bucket(bucket_s* b) {
-    free(b->values);
-    if (b->next != NULL) {
-        deinit_bucket(b->next);
-        free(b->next);
-    }
-}
-
 typedef struct map {
-    size_t hash_seed;
+    int hash_seed;
     size_t key_size;
     size_t value_len;
     size_t capacity;
@@ -61,7 +46,7 @@ typedef struct map {
 static void init_map(map_s* m, size_t value_len, size_t capacity) {
     size_t i = 0;
 
-    m->hash_seed = HASH_SEED;
+    m->hash_seed = rand();
     m->key_size = KEY_SIZE_UNKNOWN;
     m->value_len = value_len;
     m->capacity = capacity == 0 ? BUCKET_CAPA : capacity;
@@ -80,14 +65,19 @@ static void init_map(map_s* m, size_t value_len, size_t capacity) {
     m->keys_capacity = KEY_CAPA;
 
     for (i = 0; i < m->nb_buckets; ++i) {
-        init_bucket(&m->buckets[i], value_len);
+        memset(&m->buckets[i], 0, sizeof(bucket_s));
     }
 }
 
 static void deinit_map(map_s* m) {
     size_t i = 0;
     for (i = 0; i < m->nb_buckets; ++i) {
-        deinit_bucket(&m->buckets[i]);
+        bucket_s* b = &m->buckets[i];
+        while (b->next != NULL) {
+            bucket_s* next = b->next->next;
+            free(b->next);
+            b->next = next;
+        }
     }
     free(m->buckets);
     free(m->keys);
@@ -208,7 +198,7 @@ static void insert(map_s* m, const char* key, size_t key_len,
     if (pos == BUCKET_CAPA) {
         b->next = malloc(sizeof(bucket_s));
         assert(b->next != NULL && "Failed to allocate memory for new bucket");
-        init_bucket(b->next, m->value_len);
+        memset(b->next, 0, sizeof(bucket_s));
         b = b->next;
         pos = 0;
     }
