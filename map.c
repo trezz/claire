@@ -12,10 +12,10 @@
  * Configuration constants for the map implementation.
  * These can be adjusted to optimize performance for specific use cases.
  */
-#define BUCKET_CAPA 8           /* Number of key-value pairs per bucket */
-#define KEY_CAPA 1024           /* Initial capacity for the keys buffer */
-#define MAP_MAX_LOAD_FACTOR 6.5 /* Maximum load factor before rehashing */
-#define MAX_VALUE_SIZE sizeof(int64_t) /* Maximum value size supported */
+#define BUCKET_CAPA 8           /* Number of key-value pairs per bucket. */
+#define KEY_CAPA 1024           /* Initial capacity for the keys buffer. */
+#define MAP_MAX_LOAD_FACTOR 6.5 /* Maximum load factor before rehashing. */
+#define MAX_VALUE_SIZE sizeof(int64_t) /* Maximum value size supported. */
 
 typedef struct bucket {
     size_t hash[BUCKET_CAPA];
@@ -105,29 +105,47 @@ size_t map_len(const map_t map) {
 #define bucket_pos(m, h) ((h) & ((m)->nb_buckets - 1))
 #define bucket_val(m, b, i) ((b)->values + ((i) * (m)->value_len))
 
+typedef struct {
+    size_t hash;
+    const void* data;
+    size_t len;
+} key_s;
+
+static key_s make_key(const map_s* m, const void* data, size_t len) {
+    key_s k;
+    k.hash = hash_bytes(data, len, m->hash_seed);
+    k.data = data;
+    k.len = len;
+    return k;
+}
+
 /*
- * Finds the map bucket holding the given key and returns 1 if the key was
- * found. If the key is not in the map, 0 is returned and the bucket that is
- * expected to store the key is set in found_bucket.
+ * Element in the map identified by its key which holds its bucket, its position
+ * in the bucket and whether the element already exists in the map.
  */
-static int find_bucket_pos(const map_s* m, const char* key, size_t key_len,
-                           unsigned long* out_key_hash, bucket_s** found_bucket,
-                           size_t* found_pos) {
-    const unsigned long h = hash_bytes(key, key_len, m->hash_seed);
-    const size_t bpos = bucket_pos(m, h);
+typedef struct {
+    bucket_s* bucket; /* Pointer to the bucket that should hold the key. */
+    size_t pos;       /* Position in the bucket for the key. */
+    int found;        /* Non-zero if the key already exists in the map. */
+} elem_s;
+
+/*
+ * Finds the bucket and the position within the bucket for the given key.
+ */
+static elem_s find_key(const map_s* m, const key_s* k) {
+    const size_t bpos = bucket_pos(m, k->hash);
     bucket_s* b = &m->buckets[bpos];
     size_t i = 0;
-
-    *out_key_hash = h;
+    elem_s res = {0};
 
     while (1) {
         for (i = 0; i < b->len; ++i) {
             const char* bkey = NULL;
-            if (h != b->hash[i]) {
+            if (k->hash != b->hash[i]) {
                 continue;
             }
             bkey = m->keys + b->key_positions[i];
-            if (!strncmp(key, bkey, key_len)) {
+            if (!strncmp(k->data, bkey, k->len)) {
                 break;
             }
         }
@@ -140,20 +158,20 @@ static int find_bucket_pos(const map_s* m, const char* key, size_t key_len,
         b = b->next;
     }
 
-    *found_bucket = b;
-    *found_pos = i;
-
-    return i < b->len;
+    res.bucket = b;
+    res.pos = i;
+    res.found = i < b->len;
+    return res;
 }
 
-int map_get(const map_t map, const void* key, size_t key_len, void* v) {
+int map_get(const map_t map, const void* key, size_t key_len, void* dest) {
     const map_s* m = map;
-    const void* data = map_at(map, key, key_len);
-    if (data == NULL) {
+    const void* v = map_at(map, key, key_len);
+    if (v == NULL) {
         return 0;
     }
-    if (v != NULL) {
-        memcpy(v, data, m->value_len);
+    if (dest != NULL) {
+        memcpy(dest, v, m->value_len);
     }
     return 1;
 }
@@ -161,19 +179,19 @@ int map_get(const map_t map, const void* key, size_t key_len, void* v) {
 /*
  * Appends the given key in the keys buffer of the map and returns its position.
  */
-static size_t append_new_key(map_s* m, const char* key, size_t key_len) {
+static size_t append_new_key(map_s* m, const key_s* k) {
     size_t key_pos = 0;
 
-    while (m->keys_len + key_len + 1 > m->keys_capacity) {
+    while (m->keys_len + k->len + 1 > m->keys_capacity) {
         m->keys_capacity *= 2;
         m->keys = realloc(m->keys, m->keys_capacity);
         assert(m->keys != NULL && "Failed to reallocate memory for map keys");
     }
 
     key_pos = m->keys_len;
-    memcpy(m->keys + key_pos, key, key_len);
-    m->keys[key_pos + key_len] = '\0';
-    m->keys_len += key_len + 1;
+    memcpy(m->keys + key_pos, k->data, k->len);
+    m->keys[key_pos + k->len] = '\0';
+    m->keys_len += k->len + 1;
 
     return key_pos;
 }
@@ -181,36 +199,33 @@ static size_t append_new_key(map_s* m, const char* key, size_t key_len) {
 /*
  * Insert a new key/value pair in the map and return a pointer to the map.
  */
-static void insert(map_s* m, const char* key, size_t key_len,
-                   const void* val_ptr) {
-    bucket_s* b = NULL;
-    size_t pos = 0;
-    size_t h = 0;
+static void insert(map_s* m, const key_s* k, const void* v) {
+    elem_s elem = find_key(m, k);
+    bucket_s* b = elem.bucket;
 
-    if (find_bucket_pos(m, key, key_len, &h, &b, &pos)) {
-        if (val_ptr != NULL) {
-            memcpy(bucket_val(m, b, pos), val_ptr, m->value_len);
+    if (elem.found) {
+        if (v != NULL) {
+            memcpy(bucket_val(m, b, elem.pos), v, m->value_len);
         }
         return;
     }
-    pos = b->len;
 
-    if (pos == BUCKET_CAPA) {
+    if (elem.pos == BUCKET_CAPA) {
         b->next = malloc(sizeof(bucket_s));
         assert(b->next != NULL && "Failed to allocate memory for new bucket");
         memset(b->next, 0, sizeof(bucket_s));
         b = b->next;
-        pos = 0;
+        elem.pos = 0;
     }
-    if (val_ptr != NULL) {
-        memcpy(bucket_val(m, b, pos), val_ptr, m->value_len);
+    if (v != NULL) {
+        memcpy(bucket_val(m, b, elem.pos), v, m->value_len);
     }
-    b->hash[pos] = h;
-    b->key_positions[pos] = append_new_key(m, key, key_len);
+    b->hash[elem.pos] = k->hash;
+    b->key_positions[elem.pos] = append_new_key(m, k);
 
     if (m->key_size == KEY_SIZE_UNKNOWN) {
-        m->key_size = key_len;
-    } else if (m->key_size != key_len) {
+        m->key_size = k->len;
+    } else if (m->key_size != k->len) {
         m->key_size = KEY_SIZE_MIXED;
     }
 
@@ -228,7 +243,8 @@ static void rehash(map_s* m) {
     map_it_t it = {0};
     init_map(&tmp, m->value_len, m->capacity * 2);
     while (map_iter(m, &it)) {
-        insert(&tmp, it.key, it.key_len, it.value);
+        key_s k = make_key(&tmp, it.key, it.key_len);
+        insert(&tmp, &k, it.value);
     }
     deinit_map(m);
     memcpy(m, &tmp, sizeof(map_s));
@@ -242,14 +258,17 @@ void map_set(map_t map, const void* key, size_t key_len, ...) {
     int32_t i32 = 0;
     int64_t i64 = 0;
     va_list args;
+    key_s k;
 
     if (load_factor > MAP_MAX_LOAD_FACTOR) {
         rehash(m);
     }
 
+    k = make_key(m, key, key_len);
+
     if (m->value_len == 0) {
         /* Special case for empty values, used to implement sets. */
-        insert(m, key, key_len, NULL);
+        insert(m, &k, NULL);
         return;
     }
 
@@ -260,18 +279,18 @@ void map_set(map_t map, const void* key, size_t key_len, ...) {
     switch (m->value_len) {
         case sizeof(int8_t):
             i8 = (int8_t)i64;
-            insert(m, key, key_len, &i8);
+            insert(m, &k, &i8);
             return;
         case sizeof(int16_t):
             i16 = (int16_t)i64;
-            insert(m, key, key_len, &i16);
+            insert(m, &k, &i16);
             return;
         case sizeof(int32_t):
             i32 = (int32_t)i64;
-            insert(m, key, key_len, &i32);
+            insert(m, &k, &i32);
             return;
         case sizeof(int64_t):
-            insert(m, key, key_len, &i64);
+            insert(m, &k, &i64);
             return;
         default:
             assert(0 && "unsupported value data size");
@@ -280,32 +299,28 @@ void map_set(map_t map, const void* key, size_t key_len, ...) {
 
 void* map_at(const map_t map, const void* key, size_t key_len) {
     const map_s* m = map;
-    bucket_s* b = NULL;
-    size_t pos = 0;
-    size_t h = 0;
-
-    if (!find_bucket_pos(m, key, key_len, &h, &b, &pos)) {
-        return NULL;
-    }
-    return bucket_val(m, b, pos);
+    const key_s k = make_key(m, key, key_len);
+    const elem_s elem = find_key(m, &k);
+    return elem.found ? bucket_val(m, elem.bucket, elem.pos) : NULL;
 }
 
 int map_del(map_t map, const void* key, size_t key_len) {
     map_s* m = map;
-    bucket_s* b = NULL;
-    size_t pos = 0;
-    size_t h = 0;
+    const key_s k = make_key(m, key, key_len);
+    const elem_s elem = find_key(m, &k);
 
-    if (!find_bucket_pos(m, key, key_len, &h, &b, &pos)) {
+    if (!elem.found) {
         return 0;
     }
-    if (b->len > 1) {
-        b->hash[pos] = b->hash[b->len - 1];
-        b->key_positions[pos] = b->key_positions[b->len - 1];
-        memcpy(bucket_val(m, b, pos), bucket_val(m, b, b->len - 1),
-               m->value_len);
+
+    if (elem.bucket->len > 1) {
+        const size_t last = elem.bucket->len - 1;
+        elem.bucket->hash[elem.pos] = elem.bucket->hash[last];
+        elem.bucket->key_positions[elem.pos] = elem.bucket->key_positions[last];
+        memcpy(bucket_val(m, elem.bucket, elem.pos),
+               bucket_val(m, elem.bucket, last), m->value_len);
     }
-    --b->len;
+    --elem.bucket->len;
     --m->len;
     return 1;
 }
