@@ -18,15 +18,15 @@
 #define MAX_VALUE_SIZE sizeof(int64_t) /* Maximum value size supported. */
 
 typedef struct bucket {
-    size_t hash[BUCKET_CAPA];
-    size_t key_positions[BUCKET_CAPA];
+    size_t hashes[BUCKET_CAPA];
+    size_t keys[BUCKET_CAPA];
     char values[BUCKET_CAPA * MAX_VALUE_SIZE];
     size_t len;
     struct bucket* next;
 } bucket_s;
 
 typedef struct map {
-    int hash_seed;
+    int seed;
     size_t key_size;
     size_t value_len;
     size_t capacity;
@@ -46,7 +46,7 @@ typedef struct map {
 static void init_map(map_s* m, size_t value_len, size_t capacity) {
     size_t i = 0;
 
-    m->hash_seed = rand();
+    m->seed = rand();
     m->key_size = KEY_SIZE_UNKNOWN;
     m->value_len = value_len;
     m->capacity = capacity == 0 ? BUCKET_CAPA : capacity;
@@ -113,7 +113,7 @@ typedef struct {
 
 static key_s make_key(const map_s* m, const void* data, size_t len) {
     key_s k;
-    k.hash = hash_bytes(data, len, m->hash_seed);
+    k.hash = hash_bytes(data, len, m->seed);
     k.data = data;
     k.len = len;
     return k;
@@ -141,10 +141,10 @@ static elem_s find_key(const map_s* m, const key_s* k) {
     while (1) {
         for (i = 0; i < b->len; ++i) {
             const char* bkey = NULL;
-            if (k->hash != b->hash[i]) {
+            if (k->hash != b->hashes[i]) {
                 continue;
             }
-            bkey = m->keys + b->key_positions[i];
+            bkey = m->keys + b->keys[i];
             if (!strncmp(k->data, bkey, k->len)) {
                 break;
             }
@@ -220,8 +220,8 @@ static void insert(map_s* m, const key_s* k, const void* v) {
     if (v != NULL) {
         memcpy(bucket_val(m, b, elem.pos), v, m->value_len);
     }
-    b->hash[elem.pos] = k->hash;
-    b->key_positions[elem.pos] = append_new_key(m, k);
+    b->hashes[elem.pos] = k->hash;
+    b->keys[elem.pos] = append_new_key(m, k);
 
     if (m->key_size == KEY_SIZE_UNKNOWN) {
         m->key_size = k->len;
@@ -315,8 +315,8 @@ int map_del(map_t map, const void* key, size_t key_len) {
 
     if (elem.bucket->len > 1) {
         const size_t last = elem.bucket->len - 1;
-        elem.bucket->hash[elem.pos] = elem.bucket->hash[last];
-        elem.bucket->key_positions[elem.pos] = elem.bucket->key_positions[last];
+        elem.bucket->hashes[elem.pos] = elem.bucket->hashes[last];
+        elem.bucket->keys[elem.pos] = elem.bucket->keys[last];
         memcpy(bucket_val(m, elem.bucket, elem.pos),
                bucket_val(m, elem.bucket, last), m->value_len);
     }
@@ -342,7 +342,7 @@ int map_iter(const map_t map, map_it_t* it) {
             if (it->_kpos >= b->len) {
                 continue;
             }
-            it->key = m->keys + b->key_positions[it->_kpos];
+            it->key = m->keys + b->keys[it->_kpos];
             it->key_len = (m->key_size == KEY_SIZE_MIXED ||
                            m->key_size == KEY_SIZE_UNKNOWN)
                               ? (size_t)strlen(it->key)
