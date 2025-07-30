@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 int main(void) {
-    size_t *vec = vec_new(size_t, 0, 0);
+    size_t *vec = vec_new(size_t);
     size_t i = 0;
 
     for (i = 0; i < 20; ++i) {

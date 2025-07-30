@@ -31,7 +31,11 @@ typedef struct {
 
 static header_s *extend_header(header_s *h, size_t value_size,
                                size_t capacity) {
-    size_t c = CAPACITY;
+    size_t c = 0;
+
+    if (capacity > 0) {
+        c = CAPACITY;
+    }
 
     if (h != NULL && h->cap >= capacity) {
         return h;
@@ -50,7 +54,7 @@ static header_s *extend_header(header_s *h, size_t value_size,
 /* Returns a pointer on the header of the passed vector. */
 #define header(vec) (((header_s *)vec) - 1)
 
-void *_vec_new(size_t value_size, size_t len, size_t capacity) {
+void *_vec_make(size_t value_size, size_t len, size_t capacity) {
     header_s *h = NULL;
 
     assert(len <= capacity && "Length must be less than or equal to capacity");
@@ -88,7 +92,7 @@ void _vec_reserve(void *vec_ptr, size_t value_size, size_t capacity) {
     header_s *h = NULL;
 
     if (*vp == NULL) {
-        *vp = _vec_new(value_size, 0, capacity);
+        *vp = _vec_make(value_size, 0, capacity);
         return;
     }
 
@@ -102,7 +106,7 @@ void _vec_resize(void *vec_ptr, size_t value_size, size_t len) {
     header_s *h = NULL;
 
     if (*vp == NULL) {
-        *vp = _vec_new(value_size, len, len);
+        *vp = _vec_make(value_size, len, len);
         return;
     }
 

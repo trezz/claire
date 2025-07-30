@@ -3,9 +3,12 @@
 
 #include <stddef.h>
 
-#define vec_new(T, len, capacity) ((T *)_vec_new(sizeof(T), (len), (capacity)))
+#define vec_new(T) ((T *)_vec_make(sizeof(T), 0, 0))
 
-void *_vec_new(size_t value_size, size_t len, size_t capacity);
+#define vec_make(T, len, capacity) \
+    ((T *)_vec_make(sizeof(T), (len), (capacity)))
+
+void *_vec_make(size_t value_size, size_t len, size_t capacity);
 
 void vec_free(void *vec);
 
