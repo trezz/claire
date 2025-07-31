@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "buffer.h"
 #include "hash.h"
 #include "vec.h"
 
@@ -35,7 +34,10 @@ typedef struct map {
     size_t len;
 
     bucket_s* buckets;
-    buffer_t keys;
+
+    char* keys;
+    size_t keys_len;
+    size_t keys_cap;
 } map_s;
 
 #define KEY_SIZE_MIXED SIZE_MAX
@@ -57,8 +59,10 @@ static void init_map(map_s* m, size_t value_len, size_t capacity) {
     m->buckets = vec_make(bucket_s, nb_buckets, nb_buckets);
     memset(m->buckets, 0, nb_buckets * sizeof(bucket_s));
 
-    buffer_init(&m->keys);
-    buffer_grow(&m->keys, KEY_CAPA);
+    m->keys = malloc(KEY_CAPA);
+    assert(m->keys != NULL && "Failed to allocate memory for keys buffer");
+    m->keys_len = 0;
+    m->keys_cap = KEY_CAPA;
 }
 
 static void deinit_map(map_s* m) {
@@ -71,7 +75,7 @@ static void deinit_map(map_s* m) {
             b->next = next;
         }
     }
-    buffer_free(&m->keys);
+    free(m->keys);
     vec_free(m->buckets);
 }
 
@@ -140,7 +144,7 @@ static elem_s find_key(const map_s* m, const key_s* k) {
             if (k->hash != b->hashes[i]) {
                 continue;
             }
-            bkey = m->keys.data + b->keys[i];
+            bkey = m->keys + b->keys[i];
             if (!strncmp(k->data, bkey, k->len)) {
                 break;
             }
@@ -198,9 +202,16 @@ static void insert(map_s* m, const key_s* k, const void* v) {
     }
     b->hashes[elem.pos] = k->hash;
 
-    b->keys[elem.pos] = buffer_len(&m->keys);
-    buffer_write(&m->keys, k->data, k->len);
-    buffer_write_char(&m->keys, 0);
+    if (m->keys_len + k->len + 1 > m->keys_cap) {
+        m->keys_cap = m->keys_cap * 2;
+        m->keys = realloc(m->keys, m->keys_cap);
+        assert(m->keys != NULL &&
+               "Failed to reallocate memory for keys buffer");
+    }
+    b->keys[elem.pos] = m->keys_len;
+    memcpy(m->keys + m->keys_len, k->data, k->len);
+    m->keys_len += k->len;
+    m->keys[m->keys_len++] = 0;
 
     if (m->key_size == KEY_SIZE_UNKNOWN) {
         m->key_size = k->len;
@@ -322,7 +333,7 @@ int map_iter(const map_t map, map_it_t* it) {
             if (it->_kpos >= b->len) {
                 continue;
             }
-            it->key = m->keys.data + b->keys[it->_kpos];
+            it->key = m->keys + b->keys[it->_kpos];
             it->key_len = (m->key_size == KEY_SIZE_MIXED ||
                            m->key_size == KEY_SIZE_UNKNOWN)
                               ? (size_t)strlen(it->key)

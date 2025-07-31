@@ -3,6 +3,13 @@
 
 #include <stddef.h>
 
+void vecDestroy(void *vec);
+
+void *vectorCreate(size_t valueSize, size_t len, size_t capacity);
+void vectorGrow(void *vecPtr, size_t valueSize, size_t n);
+void vectorResize(void *vecPtr, size_t valueSize, size_t len);
+void vectorReserve(void *vecPtr, size_t valueSize, size_t capacity);
+
 #define vec_new(T) ((T *)_vec_make(sizeof(T), 0, 0))
 
 #define vec_make(T, len, capacity) \
@@ -38,3 +45,6 @@ void _vec_resize(void *vec_ptr, size_t value_size, size_t len);
     } while (0)
 
 #endif
+
+extern size_t vecLenOffset;
+extern size_t vecCapOffset;
