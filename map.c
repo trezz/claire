@@ -7,7 +7,6 @@
 #include <string.h>
 
 #include "hash.h"
-#include "vec.h"
 
 /*
  * Configuration constants for the map implementation.
@@ -34,6 +33,7 @@ typedef struct map {
     size_t len;
 
     bucket_s* buckets;
+    size_t buckets_len;
 
     char* keys;
     size_t keys_len;
@@ -44,8 +44,6 @@ typedef struct map {
 #define KEY_SIZE_UNKNOWN 0
 
 static void init_map(map_s* m, size_t value_len, size_t capacity) {
-    size_t nb_buckets = 0;
-
     m->seed = rand();
     m->key_size = KEY_SIZE_UNKNOWN;
     m->value_len = value_len;
@@ -55,9 +53,9 @@ static void init_map(map_s* m, size_t value_len, size_t capacity) {
     }
     m->len = 0;
 
-    nb_buckets = m->capacity / BUCKET_CAPA;
-    m->buckets = vec_make(bucket_s, nb_buckets, nb_buckets);
-    memset(m->buckets, 0, nb_buckets * sizeof(bucket_s));
+    m->buckets_len = m->capacity / BUCKET_CAPA;
+    m->buckets = malloc(m->buckets_len * sizeof(bucket_s));
+    memset(m->buckets, 0, m->buckets_len * sizeof(bucket_s));
 
     m->keys = malloc(KEY_CAPA);
     assert(m->keys != NULL && "Failed to allocate memory for keys buffer");
@@ -67,7 +65,7 @@ static void init_map(map_s* m, size_t value_len, size_t capacity) {
 
 static void deinit_map(map_s* m) {
     size_t i = 0;
-    for (i = 0; i < vec_len(m->buckets); ++i) {
+    for (i = 0; i < m->buckets_len; ++i) {
         bucket_s* b = &m->buckets[i];
         while (b->next != NULL) {
             bucket_s* next = b->next->next;
@@ -75,8 +73,8 @@ static void deinit_map(map_s* m) {
             b->next = next;
         }
     }
+    free(m->buckets);
     free(m->keys);
-    vec_free(m->buckets);
 }
 
 map_t map_new(size_t value_len, size_t capacity) {
@@ -102,7 +100,7 @@ size_t map_len(const map_t map) {
     return m->len;
 }
 
-#define bucket_pos(m, h) ((h) & (vec_len((m)->buckets) - 1))
+#define bucket_pos(m, h) ((h) & ((m)->buckets_len - 1))
 #define bucket_val(m, b, i) ((b)->values + ((i) * (m)->value_len))
 
 typedef struct {
@@ -242,7 +240,7 @@ static void rehash(map_s* m) {
 
 void map_set(map_t map, const void* key, size_t key_len, ...) {
     map_s* m = map;
-    const double load_factor = (double)(m->len) / (double)vec_len(m->buckets);
+    const double load_factor = (double)(m->len) / (double)m->buckets_len;
     int8_t i8 = 0;
     int16_t i16 = 0;
     int32_t i32 = 0;
@@ -317,7 +315,7 @@ int map_del(map_t map, const void* key, size_t key_len) {
 
 int map_iter(const map_t map, map_it_t* it) {
     const map_s* m = map;
-    const size_t nb_buckets = vec_len(m->buckets);
+    const size_t nb_buckets = m->buckets_len;
 
     if (m->len == 0) {
         return 0;

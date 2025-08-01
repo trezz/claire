@@ -12,7 +12,7 @@ BIN_DIR = $(BUILD_DIR)/bin
 LIB_DIR = $(BUILD_DIR)/lib
 
 # Source files
-SRCS = hash.c map.c vec.c buffer.c
+SRCS = hash.c map.c
 OBJS = $(SRCS:%.c=$(OBJ_DIR)/%.o)
 DEBUG_OBJS = $(SRCS:%.c=$(OBJ_DIR)/debug/%.o)
 
@@ -45,22 +45,17 @@ TEST_MODE ?= prod
 ifeq ($(TEST_MODE),debug)
     TEST_CFLAGS = $(DEBUG_CFLAGS)
     TEST_HASH_DEPS = $(OBJ_DIR)/debug/hash.o
-    TEST_MAP_DEPS = $(OBJ_DIR)/debug/map.o $(OBJ_DIR)/debug/hash.o $(OBJ_DIR)/debug/buffer.o $(OBJ_DIR)/debug/vec.o
-    TEST_VEC_DEPS = $(OBJ_DIR)/debug/vec.o
+    TEST_MAP_DEPS = $(OBJ_DIR)/debug/map.o $(OBJ_DIR)/debug/hash.o
 else
     TEST_CFLAGS = $(CFLAGS)
     TEST_HASH_DEPS = $(OBJ_DIR)/hash.o
-    TEST_MAP_DEPS = $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o $(OBJ_DIR)/buffer.o $(OBJ_DIR)/vec.o
-    TEST_VEC_DEPS = $(OBJ_DIR)/vec.o
+    TEST_MAP_DEPS = $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o
 endif
 
 $(BIN_DIR)/hash_test: hash_test.c $(TEST_HASH_DEPS) | $(BIN_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@
 
 $(BIN_DIR)/map_test: map_test.c $(TEST_MAP_DEPS) | $(BIN_DIR)
-	$(CC) $(TEST_CFLAGS) $^ -o $@
-
-$(BIN_DIR)/vec_test: vec_test.c $(TEST_VEC_DEPS) | $(BIN_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@
 
 # Directories
@@ -75,25 +70,21 @@ debug: $(DEBUG_LIB)
 
 # Test targets
 .PHONY: test test-debug
-test: $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
+test: $(BIN_DIR)/hash_test $(BIN_DIR)/map_test
 	@echo "Running hash tests..."
 	@$(BIN_DIR)/hash_test
 	@echo "Running map tests..."
 	@$(BIN_DIR)/map_test
-	@echo "Running vec tests..."
-	@$(BIN_DIR)/vec_test
 
 test-debug: clean-tests
-	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
+	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/hash_test $(BIN_DIR)/map_test
 	@echo "Running hash tests (debug)..."
 	@$(BIN_DIR)/hash_test
 	@echo "Running map tests (debug)..."
 	@$(BIN_DIR)/map_test
-	@echo "Running vec tests (debug)..."
-	@$(BIN_DIR)/vec_test
 
 # Individual test targets
-.PHONY: hash_test map_test vec_test hash_test-debug map_test-debug vec_test-debug
+.PHONY: hash_test map_test vec_test hash_test-debug map_test-debug
 hash_test: $(BIN_DIR)/hash_test
 	@echo "Running hash tests..."
 	@$(BIN_DIR)/hash_test
@@ -101,10 +92,6 @@ hash_test: $(BIN_DIR)/hash_test
 map_test: $(BIN_DIR)/map_test
 	@echo "Running map tests..."
 	@$(BIN_DIR)/map_test
-
-vec_test: $(BIN_DIR)/vec_test
-	@echo "Running vec tests..."
-	@$(BIN_DIR)/vec_test
 
 hash_test-debug: clean-tests
 	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/hash_test
@@ -116,17 +103,10 @@ map_test-debug: clean-tests
 	@echo "Running map tests (debug)..."
 	@$(BIN_DIR)/map_test
 
-vec_test-debug: clean-tests
-	@$(MAKE) TEST_MODE=debug $(BIN_DIR)/vec_test
-	@echo "Running vec tests (debug)..."
-	@$(BIN_DIR)/vec_test
-
 # Module targets
-.PHONY: hash map vec buffer
+.PHONY: hash map
 hash: $(OBJ_DIR)/hash.o
 map: $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o
-vec: $(OBJ_DIR)/vec.o
-buffer: $(OBJ_DIR)/buffer.o $(OBJ_DIR)/vec.o
 
 # Clean targets
 .PHONY: clean clean-tests
@@ -134,7 +114,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 clean-tests:
-	rm -f $(BIN_DIR)/hash_test $(BIN_DIR)/map_test $(BIN_DIR)/vec_test
+	rm -f $(BIN_DIR)/hash_test $(BIN_DIR)/map_test
 
 # Help
 .PHONY: help
@@ -149,11 +129,11 @@ help:
 	@echo "  test-debug   - Build and run all tests (debug)"
 	@echo ""
 	@echo "Individual tests:"
-	@echo "  hash_test, map_test, vec_test - Run specific test (production)"
-	@echo "  hash_test-debug, map_test-debug, vec_test-debug - Debug versions"
+	@echo "  hash_test, map_test - Run specific test (production)"
+	@echo "  hash_test-debug, map_test-debug - Debug versions"
 	@echo ""
 	@echo "Modules:"
-	@echo "  hash, map, vec, buffer - Build individual modules"
+	@echo "  hash, map - Build individual modules"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  clean        - Remove all build files"
