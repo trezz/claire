@@ -77,27 +77,27 @@ static void deinit_map(map_s* m) {
     free(m->keys);
 }
 
-map_t map_new(size_t value_len, size_t capacity) {
+Map* mapNew(size_t valueLen, size_t capacity) {
     map_s* m = NULL;
 
-    assert(value_len <= MAX_VALUE_SIZE &&
+    assert(valueLen <= MAX_VALUE_SIZE &&
            "Value size must not exceed the maximum supported size");
 
     m = malloc(sizeof(map_s));
     assert(m != NULL && "Failed to allocate memory for map");
-    init_map(m, value_len, capacity);
+    init_map(m, valueLen, capacity);
     return m;
 }
 
-void map_free(map_t map) {
-    map_s* m = map;
-    deinit_map(m);
-    free(m);
+void mapFree(Map* m) {
+    map_s* map = m;
+    deinit_map(map);
+    free(map);
 }
 
-size_t map_len(const map_t map) {
-    const map_s* m = map;
-    return m->len;
+size_t mapLen(const Map* m) {
+    const map_s* map = m;
+    return map->len;
 }
 
 #define bucket_pos(m, h) ((h) & ((m)->buckets_len - 1))
@@ -162,14 +162,14 @@ static elem_s find_key(const map_s* m, const key_s* k) {
     return res;
 }
 
-int map_get(const map_t map, const void* key, size_t key_len, void* dest) {
-    const map_s* m = map;
-    const void* v = map_at(map, key, key_len);
+int mapGet(const Map* m, const void* key, size_t keyLen, void* dest) {
+    const map_s* map = m;
+    const void* v = mapAt(m, key, keyLen);
     if (v == NULL) {
         return 0;
     }
     if (dest != NULL) {
-        memcpy(dest, v, m->value_len);
+        memcpy(dest, v, map->value_len);
     }
     return 1;
 }
@@ -228,73 +228,38 @@ static void insert(map_s* m, const key_s* k, const void* v) {
  */
 static void rehash(map_s* m) {
     map_s tmp;
-    map_it_t it = {0};
+    MapIt it = {0};
     init_map(&tmp, m->value_len, m->capacity * 2);
-    while (map_iter(m, &it)) {
-        key_s k = make_key(&tmp, it.key, it.key_len);
+    while (mapIter(m, &it)) {
+        key_s k = make_key(&tmp, it.key, it.keyLen);
         insert(&tmp, &k, it.value);
     }
     deinit_map(m);
     memcpy(m, &tmp, sizeof(map_s));
 }
 
-void map_set(map_t map, const void* key, size_t key_len, ...) {
-    map_s* m = map;
-    const double load_factor = (double)(m->len) / (double)m->buckets_len;
-    int8_t i8 = 0;
-    int16_t i16 = 0;
-    int32_t i32 = 0;
-    int64_t i64 = 0;
-    va_list args;
+void mapSet(Map* m, const void* key, size_t keyLen, const void* value) {
+    map_s* map = m;
+    const double load_factor = (double)(map->len) / (double)map->buckets_len;
     key_s k;
 
     if (load_factor > MAP_MAX_LOAD_FACTOR) {
-        rehash(m);
+        rehash(map);
     }
-
-    k = make_key(m, key, key_len);
-
-    if (m->value_len == 0) {
-        /* Special case for empty values, used to implement sets. */
-        insert(m, &k, NULL);
-        return;
-    }
-
-    va_start(args, key_len);
-    i64 = va_arg(args, int64_t);
-    va_end(args);
-
-    switch (m->value_len) {
-        case sizeof(int8_t):
-            i8 = (int8_t)i64;
-            insert(m, &k, &i8);
-            return;
-        case sizeof(int16_t):
-            i16 = (int16_t)i64;
-            insert(m, &k, &i16);
-            return;
-        case sizeof(int32_t):
-            i32 = (int32_t)i64;
-            insert(m, &k, &i32);
-            return;
-        case sizeof(int64_t):
-            insert(m, &k, &i64);
-            return;
-        default:
-            assert(0 && "unsupported value data size");
-    }
+    k = make_key(map, key, keyLen);
+    insert(map, &k, value);
 }
 
-void* map_at(const map_t map, const void* key, size_t key_len) {
-    const map_s* m = map;
-    const key_s k = make_key(m, key, key_len);
+void* mapAt(const Map* m, const void* key, size_t keyLen) {
+    const map_s* map = m;
+    const key_s k = make_key(m, key, keyLen);
     const elem_s elem = find_key(m, &k);
-    return elem.found ? bucket_val(m, elem.bucket, elem.pos) : NULL;
+    return elem.found ? bucket_val(map, elem.bucket, elem.pos) : NULL;
 }
 
-int map_del(map_t map, const void* key, size_t key_len) {
-    map_s* m = map;
-    const key_s k = make_key(m, key, key_len);
+int mapDelete(Map* m, const void* key, size_t keyLen) {
+    map_s* map = m;
+    const key_s k = make_key(m, key, keyLen);
     const elem_s elem = find_key(m, &k);
 
     if (!elem.found) {
@@ -305,24 +270,24 @@ int map_del(map_t map, const void* key, size_t key_len) {
         const size_t last = elem.bucket->len - 1;
         elem.bucket->hashes[elem.pos] = elem.bucket->hashes[last];
         elem.bucket->keys[elem.pos] = elem.bucket->keys[last];
-        memcpy(bucket_val(m, elem.bucket, elem.pos),
-               bucket_val(m, elem.bucket, last), m->value_len);
+        memcpy(bucket_val(map, elem.bucket, elem.pos),
+               bucket_val(map, elem.bucket, last), map->value_len);
     }
     --elem.bucket->len;
-    --m->len;
+    --map->len;
     return 1;
 }
 
-int map_iter(const map_t map, map_it_t* it) {
-    const map_s* m = map;
-    const size_t nb_buckets = m->buckets_len;
+int mapIter(const Map* m, MapIt* it) {
+    const map_s* map = m;
+    const size_t nb_buckets = map->buckets_len;
 
-    if (m->len == 0) {
+    if (map->len == 0) {
         return 0;
     }
 
     if (it->_b == NULL) {
-        it->_b = &m->buckets[0];
+        it->_b = &map->buckets[0];
     }
 
     while (it->_bpos < nb_buckets) {
@@ -331,12 +296,12 @@ int map_iter(const map_t map, map_it_t* it) {
             if (it->_kpos >= b->len) {
                 continue;
             }
-            it->key = m->keys + b->keys[it->_kpos];
-            it->key_len = (m->key_size == KEY_SIZE_MIXED ||
-                           m->key_size == KEY_SIZE_UNKNOWN)
-                              ? (size_t)strlen(it->key)
-                              : (size_t)m->key_size;
-            it->value = bucket_val(m, b, it->_kpos);
+            it->key = map->keys + b->keys[it->_kpos];
+            it->keyLen = (map->key_size == KEY_SIZE_MIXED ||
+                          map->key_size == KEY_SIZE_UNKNOWN)
+                             ? (size_t)strlen(it->key)
+                             : (size_t)map->key_size;
+            it->value = bucket_val(map, b, it->_kpos);
             ++it->_kpos;
             return 1;
         }
@@ -344,7 +309,7 @@ int map_iter(const map_t map, map_it_t* it) {
         if (++it->_bpos == nb_buckets) {
             return 0;
         }
-        it->_b = &m->buckets[it->_bpos];
+        it->_b = &map->buckets[it->_bpos];
     }
     return 0;
 }
