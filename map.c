@@ -240,13 +240,39 @@ static void insert(HashMap* m, BufferView k, BufferView v) {
     ++m->len;
 }
 
-typedef struct {
-    const HashMap* map;
-    const Bucket* bucket;
-    const Item* item;
-    size_t bucketPos;
-    size_t keyPos;
-} MapIterator;
+static void rehash(HashMap* m) {
+    HashMap tmp;
+    MapIterator it = mapIteratorCreate(m);
+
+    init(&tmp, m->cap * 2);
+    while (mapIteratorNext(&it)) {
+        const Item* item = it.item;
+        BufferView key = bufferViewFromDescriptor(m->buf, item->key);
+        BufferView value = bufferViewFromDescriptor(m->buf, item->value);
+        insert(&tmp, key, value);
+    }
+    deinit(m);
+    *m = tmp;
+}
+
+void mapSet(Map* map, const void* key, size_t keyLen, const void* value,
+            size_t valueLen) {
+    HashMap* m = map;
+    const double loadFactor = (double)(m->len) / (double)m->bucketsLen;
+    BufferView k;
+    BufferView v;
+
+    k.data = (char*)key;
+    k.len = keyLen;
+    v.data = (char*)value;
+    v.len = valueLen;
+
+    if (loadFactor > MAX_LOAD_FACTOR) {
+        rehash(m);
+    }
+
+    insert(m, k, v);
+}
 
 MapIterator mapIteratorCreate(const Map* map) {
     const HashMap* m = map;
@@ -285,52 +311,23 @@ int mapIteratorNext(MapIterator* it) {
     return 0;
 }
 
-static void rehash(HashMap* m) {
-    HashMap tmp;
-    MapIterator it = mapIteratorCreate(m);
-
-    init(&tmp, m->cap * 2);
-    while (mapIteratorNext(&it)) {
-        const Item* item = it.item;
-        BufferView key = bufferViewFromDescriptor(m->buf, item->key);
-        BufferView value = bufferViewFromDescriptor(m->buf, item->value);
-        insert(&tmp, key, value);
-    }
-    deinit(m);
-    *m = tmp;
-}
-
-void mapSet(Map* map, const void* key, size_t keyLen, const void* value,
-            size_t valueLen) {
-    HashMap* m = map;
-    const double loadFactor = (double)(m->len) / (double)m->bucketsLen;
-    BufferView k;
-    BufferView v;
-
-    k.data = (char*)key;
-    k.len = keyLen;
-    v.data = (char*)value;
-    v.len = valueLen;
-
-    if (loadFactor > MAX_LOAD_FACTOR) {
-        rehash(m);
-    }
-
-    insert(m, k, v);
-}
-
-static void* mapIteratorKey(const MapIterator* it, size_t* keyLen) {
+void* mapIteratorKey(const MapIterator* it, size_t* keyLen) {
+    const Item* i = it->item;
+    const HashMap* m = it->map;
     if (keyLen != NULL) {
-        *keyLen = it->item->key.len;
+        *keyLen = i->key.len;
     }
-    return bufferDataFromDescriptor(it->map->buf, it->item->key);
+    return bufferDataFromDescriptor(m->buf, i->key);
 }
 
-static void* mapIteratorValue(const MapIterator* it, size_t* valueLen) {
+void* mapIteratorValue(const MapIterator* it, size_t* valueLen) {
+    const Item* i = it->item;
+    const HashMap* m = it->map;
+
     if (valueLen != NULL) {
-        *valueLen = it->item->value.len;
+        *valueLen = i->value.len;
     }
-    return bufferDataFromDescriptor(it->map->buf, it->item->value);
+    return bufferDataFromDescriptor(m->buf, i->value);
 }
 
 static void mapYieldAll(void* ctx, IterYielder2* yielder) {
