@@ -10,18 +10,18 @@ typedef struct {
 } tc_s;
 
 int main(void) {
-    const tc_s test_cases[] = {{"Hello, world!", 11600739918808951577u},
-                               {"Another test", 3559310193689980990},
-                               {"Yet another test", 13188486659528907044u}};
-    const size_t test_cases_len = sizeof(test_cases) / sizeof(tc_s);
+    const tc_s testCases[] = {{"Hello, world!", 11600739918808951577u},
+                              {"Another test", 3559310193689980990},
+                              {"Yet another test", 13188486659528907044u}};
+    const size_t testCasesLen = sizeof(testCases) / sizeof(tc_s);
 
     size_t i = 0;
-    for (i = 0; i < test_cases_len; i++) {
+    for (i = 0; i < testCasesLen; i++) {
         const size_t hash =
-            hash_bytes(test_cases[i].data, strlen(test_cases[i].data), 0);
-        if (hash != test_cases[i].want_hash) {
+            hashBytes(testCases[i].data, strlen(testCases[i].data), 0);
+        if (hash != testCases[i].want_hash) {
             printf("Hash mismatch for input '%s': got %zu, want %zu\n",
-                   test_cases[i].data, hash, test_cases[i].want_hash);
+                   testCases[i].data, hash, testCases[i].want_hash);
             return 1;
         }
     }

@@ -4,93 +4,81 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "buffer.h"
+
 /*
  * A generic in-memory key-value store.
  */
 typedef void Map;
 
 /*
- * Returns a new map configured for the the given value size and capacity.
- *
- * Value size can be 0 if the map is used as a set (i.e. no values are stored).
- *
- * Capacity is the number of key-value pairs that can be stored in the map
- * before it needs to be rehashed. If the capacity is 0, a default capacity
- * is used.
+ * Creates a new map configured with the given capacity, which is the number of
+ * key-value pairs that can be stored in the map before it needs to be rehashed.
+ * If the capacity is 0, a default capacity is used.
  */
-Map *mapNew(size_t valueLen, size_t capacity);
+Map *mapCreate(size_t capacity);
 
 /*
- * Frees the given map.
+ * Destroys the given map.
  */
-void mapFree(Map *m);
+void mapDestroy(Map *map);
 
 /*
  * Returns the number of key-value pairs in the map.
  */
-size_t mapLen(const Map *m);
+size_t mapLen(const Map *map);
 
 /*
  * Retrieves the value associated with the given key.
- * The value is copied to the address pointed to by dest.
+ * The value is copied to the address pointed to by dest and its length is
+ * stored in destLen if destLen is not NULL.
  * Returns 0 if the key was not found, a non-zero value otherwise.
  */
-int mapGet(const Map *m, const void *key, size_t keyLen, void *dest);
+int mapGet(const Map *map, const void *key, size_t keyLen, void *dest,
+           size_t *destLen);
 
 /*
- * Adds or updates a key-value pair in the map.
- *
- * Keys can be of any type. Once the first key is added to the map, any
- * subsequent addition with a different key type is considered undefined
- * behavior.
- * Keys with variable length (e.g. strings) must not contain null bytes.
- *
- * Values can be NULL if the map is configured to not hold values (e.g. created
- * with a value size of 0).
- *
- * Keys are copied in the map. If the key already exists in the map, its value
- * is replaced with the new value.
+ * Retrieves the value associated with the given key.
+ * The value is not copied, but a pointer to the data in the map is returned.
+ * If destLen is not NULL, it is set to the length of the value.
+ * Returns NULL if the key was not found, a pointer to the value otherwise.
  */
-void mapSet(Map *m, const void *key, size_t keyLen, const void *value);
-
-/*
- * Returns a pointer to the value associated with the given key if it exists,
- * or NULL if the key is not found.
- */
-void *mapAt(const Map *m, const void *key, size_t keyLen);
+void *mapAt(const Map *map, const void *key, size_t keyLen, size_t *destLen);
 
 /*
  * Deletes the key-value pair associated with the given key.
  * Returns 0 if the key was not found, a non-zero value otherwise.
  */
-int mapDelete(Map *m, const void *key, size_t keyLen);
+int mapDelete(Map *map, const void *key, size_t keyLen);
 
 /*
- * An iterator on a map.
+ * Adds or updates a key-value pair in the map.
+ *
+ * Values can be NULL if the map is used as a set.
+ *
+ * Keys and values are copied in the map. If the key already exists in the
+ * map, its value is replaced with the new value.
+ */
+void mapSet(Map *map, const void *key, size_t keyLen, const void *value,
+            size_t valueLen);
+
+/*
+ * An iterator for traversing the map. Its fields are internal state and should
+ * not be modified directly.
+ * It is valid to pass an uninitialized iterator to mapNextKey, which will
+ * initialize it.
  */
 typedef struct {
-    /* Current key. */
-    const void *key;
-    /* Length of the current key. */
-    size_t keyLen;
-    /* Pointer on the current value. */
-    void *value;
-
-    /* Internal state. */
-    void *_b;
-    size_t _bpos;
-    size_t _kpos;
-} MapIt;
+    const Map *map;
+    const void *bucket;
+    const void *item;
+    size_t bucketPos;
+    size_t keyPos;
+} MapIterator;
 
 /*
- * Iterate over the map by moving the iterator to the next key/value pair of the
- * map, or to the first key/value pair if the iterator was just initialized.
- * Returns 0 if the iteration reached the end of the map, a non-zero value
- * otherwise.
- *
- * The given iterator must be initialized to zero before the first call, like:
- *      MapIt it = {0};
+ * Iterator over the keys of the map.
  */
-int mapIter(const Map *m, MapIt *it);
+int mapNextKey(const Map *map, MapIterator *it, void *key, size_t *keyLen);
 
 #endif

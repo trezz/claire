@@ -1,149 +1,99 @@
 #include "map.h"
 
 #include <assert.h>
-#include <stdarg.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "buffer.h"
 #include "hash.h"
 
-/*
- * Configuration constants for the map implementation.
- * These can be adjusted to optimize performance for specific use cases.
- */
-#define BUCKET_CAPA 8           /* Number of key-value pairs per bucket. */
-#define KEY_CAPA 1024           /* Initial capacity for the keys buffer. */
-#define MAP_MAX_LOAD_FACTOR 6.5 /* Maximum load factor before rehashing. */
-#define MAX_VALUE_SIZE sizeof(int64_t) /* Maximum value size supported. */
-
-typedef struct bucket {
-    size_t hashes[BUCKET_CAPA];
-    size_t keys[BUCKET_CAPA];
-    char values[BUCKET_CAPA * MAX_VALUE_SIZE];
-    size_t len;
-    struct bucket* next;
-} bucket_s;
-
-typedef struct map {
-    int seed;
-    size_t key_size;
-    size_t value_len;
-    size_t capacity;
-    size_t len;
-
-    bucket_s* buckets;
-    size_t buckets_len;
-
-    char* keys;
-    size_t keys_len;
-    size_t keys_cap;
-} map_s;
-
-#define KEY_SIZE_MIXED SIZE_MAX
-#define KEY_SIZE_UNKNOWN 0
-
-static void init_map(map_s* m, size_t value_len, size_t capacity) {
-    m->seed = rand();
-    m->key_size = KEY_SIZE_UNKNOWN;
-    m->value_len = value_len;
-    m->capacity = capacity == 0 ? BUCKET_CAPA : capacity;
-    while (m->capacity % BUCKET_CAPA != 0) {
-        ++m->capacity;
-    }
-    m->len = 0;
-
-    m->buckets_len = m->capacity / BUCKET_CAPA;
-    m->buckets = malloc(m->buckets_len * sizeof(bucket_s));
-    memset(m->buckets, 0, m->buckets_len * sizeof(bucket_s));
-
-    m->keys = malloc(KEY_CAPA);
-    assert(m->keys != NULL && "Failed to allocate memory for keys buffer");
-    m->keys_len = 0;
-    m->keys_cap = KEY_CAPA;
-}
-
-static void deinit_map(map_s* m) {
-    size_t i = 0;
-    for (i = 0; i < m->buckets_len; ++i) {
-        bucket_s* b = &m->buckets[i];
-        while (b->next != NULL) {
-            bucket_s* next = b->next->next;
-            free(b->next);
-            b->next = next;
-        }
-    }
-    free(m->buckets);
-    free(m->keys);
-}
-
-Map* mapNew(size_t valueLen, size_t capacity) {
-    map_s* m = NULL;
-
-    assert(valueLen <= MAX_VALUE_SIZE &&
-           "Value size must not exceed the maximum supported size");
-
-    m = malloc(sizeof(map_s));
-    assert(m != NULL && "Failed to allocate memory for map");
-    init_map(m, valueLen, capacity);
-    return m;
-}
-
-void mapFree(Map* m) {
-    map_s* map = m;
-    deinit_map(map);
-    free(map);
-}
-
-size_t mapLen(const Map* m) {
-    const map_s* map = m;
-    return map->len;
-}
-
-#define bucket_pos(m, h) ((h) & ((m)->buckets_len - 1))
-#define bucket_val(m, b, i) ((b)->values + ((i) * (m)->value_len))
+#define BUCKET_CAP 8
+#define BUFFER_CAP 1024
+#define MAX_LOAD_FACTOR 6.5
 
 typedef struct {
     size_t hash;
-    const void* data;
-    size_t len;
-} key_s;
+    BufferDescriptor key, value;
+} Item;
 
-static key_s make_key(const map_s* m, const void* data, size_t len) {
-    key_s k;
-    k.hash = hash_bytes(data, len, m->seed);
-    k.data = data;
-    k.len = len;
-    return k;
+typedef struct Bucket {
+    Item items[BUCKET_CAP];
+    size_t len;
+    struct Bucket* next;
+} Bucket;
+
+typedef struct {
+    int seed;
+
+    size_t len, cap;
+
+    size_t bucketsLen;
+    Bucket* buckets;
+
+    Buffer buf;
+} HashMap;
+
+static void init(HashMap* m, size_t cap) {
+    m->seed = rand();
+
+    m->len = 0;
+    m->cap = cap;
+
+    assert(cap % BUCKET_CAP == 0 && "Capacity must be multiple of BUCKET_CAP");
+    m->bucketsLen = cap;
+    m->buckets = malloc(m->bucketsLen * sizeof(Bucket));
+    assert(m->buckets != NULL && "Failed to allocate memory for buckets");
+    memset(m->buckets, 0, m->bucketsLen * sizeof(Bucket));
+
+    m->buf = bufferCreate(BUFFER_CAP);
 }
 
-/*
- * Element in the map identified by its key which holds its bucket, its position
- * in the bucket and whether the element already exists in the map.
- */
+static void deinit(HashMap* m) {
+    size_t i = 0;
+    for (i = 0; i < m->bucketsLen; ++i) {
+        Bucket* b = m->buckets[i].next;
+        while (b != NULL) {
+            Bucket* next = b->next;
+            free(b);
+            b = next;
+        }
+    }
+    free(m->buckets);
+    bufferDestroy(m->buf);
+}
+
 typedef struct {
-    bucket_s* bucket; /* Pointer to the bucket that should hold the key. */
-    size_t pos;       /* Position in the bucket for the key. */
-    int found;        /* Non-zero if the key already exists in the map. */
-} elem_s;
+    Item item;
+    struct Bucket* b;
+    size_t bpos;
+    int found;
+} ItemFound;
 
 /*
- * Finds the bucket and the position within the bucket for the given key.
+ * Find the item in the map by key and return its position.
+ * An item is always returned because it represents the position within the map
+ * where the key should be or is already present. The `present` field
+ * indicates whether the key is found in the map.
  */
-static elem_s find_key(const map_s* m, const key_s* k) {
-    const size_t bpos = bucket_pos(m, k->hash);
-    bucket_s* b = &m->buckets[bpos];
+static ItemFound findItemFromKey(const HashMap* m, BufferView key) {
+    const size_t hash = hashBytes(key.data, key.len, m->seed);
+    const size_t bpos = hash & (m->bucketsLen - 1);
+    Bucket* b = &m->buckets[bpos];
     size_t i = 0;
-    elem_s res = {0};
+    ItemFound res = {0};
 
     while (1) {
         for (i = 0; i < b->len; ++i) {
-            const char* bkey = NULL;
-            if (k->hash != b->hashes[i]) {
+            Item* item = &b->items[i];
+            if (hash != item->hash) {
                 continue;
             }
-            bkey = m->keys + b->keys[i];
-            if (!strncmp(k->data, bkey, k->len)) {
+            if (!strncmp(key.data, bufferDataFromDescriptor(m->buf, item->key),
+                         key.len)) {
+                res.item.key = item->key;
+                res.item.value = item->value;
                 break;
             }
         }
@@ -156,160 +106,223 @@ static elem_s find_key(const map_s* m, const key_s* k) {
         b = b->next;
     }
 
-    res.bucket = b;
-    res.pos = i;
+    res.item.hash = hash;
+    res.b = b;
+    res.bpos = i;
     res.found = i < b->len;
     return res;
 }
 
-int mapGet(const Map* m, const void* key, size_t keyLen, void* dest) {
-    const map_s* map = m;
-    const void* v = mapAt(m, key, keyLen);
-    if (v == NULL) {
+Map* mapCreate(size_t capacity) {
+    HashMap* m = malloc(sizeof(HashMap));
+    assert(m != NULL && "Failed to allocate memory for Map");
+    if (capacity < BUCKET_CAP) {
+        capacity = BUCKET_CAP;
+    }
+    while (capacity % BUCKET_CAP != 0) {
+        capacity++;
+    }
+
+    init(m, capacity);
+    return m;
+}
+
+void mapDestroy(Map* map) {
+    deinit(map);
+    free(map);
+}
+
+size_t mapLen(const Map* map) {
+    const HashMap* m = map;
+    return m->len;
+}
+
+int mapGet(const Map* map, const void* key, size_t keyLen, void* dest,
+           size_t* destLen) {
+    size_t len = 0;
+    void* res = mapAt(map, key, keyLen, &len);
+    if (res == NULL) {
         return 0;
     }
+    if (destLen != NULL) {
+        *destLen = len;
+    }
     if (dest != NULL) {
-        memcpy(dest, v, map->value_len);
+        memcpy(dest, res, len);
     }
     return 1;
 }
 
-/*
- * Insert a new key/value pair in the map and return a pointer to the map.
- */
-static void insert(map_s* m, const key_s* k, const void* v) {
-    elem_s elem = find_key(m, k);
-    bucket_s* b = elem.bucket;
+void* mapAt(const Map* map, const void* key, size_t keyLen, size_t* destLen) {
+    const HashMap* m = map;
+    BufferView k;
+    ItemFound found;
+    BufferDescriptor v;
 
-    if (elem.found) {
-        if (v != NULL) {
-            memcpy(bucket_val(m, b, elem.pos), v, m->value_len);
-        }
+    k.data = (char*)key;
+    k.len = keyLen;
+    found = findItemFromKey(m, k);
+    v = found.item.value;
+
+    if (!found.found) {
+        return NULL;
+    }
+    if (destLen != NULL) {
+        *destLen = v.len;
+    }
+    return bufferDataFromDescriptor(m->buf, v);
+}
+
+int mapDelete(Map* map, const void* key, size_t keyLen) {
+    HashMap* m = map;
+    BufferView k;
+    ItemFound found;
+
+    k.data = (char*)key;
+    k.len = keyLen;
+
+    found = findItemFromKey(m, k);
+
+    if (!found.found) {
+        return 0;
+    }
+
+    if (found.b->len > 1) {
+        found.b->items[found.bpos] = found.b->items[found.b->len - 1];
+    }
+    --found.b->len;
+    --m->len;
+    return 1;
+}
+
+static void itemSetValue(HashMap* m, Item* item, BufferView v) {
+    if (v.len == 0) {
+        item->value.len = 0;
         return;
     }
 
-    if (elem.pos == BUCKET_CAPA) {
-        b->next = malloc(sizeof(bucket_s));
+    if (v.len > item->value.len) {
+        item->value = bufferAppendView(&m->buf, v);
+        return;
+    }
+
+    item->value.len = v.len;
+    memcpy(bufferDataFromDescriptor(m->buf, item->value), v.data, v.len);
+}
+
+static void insert(HashMap* m, BufferView k, BufferView v) {
+    ItemFound found = findItemFromKey(m, k);
+    Bucket* b = found.b;
+    Item* dest = NULL;
+
+    if (found.found) {
+        dest = &b->items[found.bpos];
+        itemSetValue(m, dest, v);
+        return;
+    }
+
+    if (b->len == BUCKET_CAP) {
+        b->next = malloc(sizeof(Bucket));
         assert(b->next != NULL && "Failed to allocate memory for new bucket");
-        memset(b->next, 0, sizeof(bucket_s));
+        memset(b->next, 0, sizeof(Bucket));
         b = b->next;
-        elem.pos = 0;
+        found.bpos = 0;
     }
-    if (v != NULL) {
-        memcpy(bucket_val(m, b, elem.pos), v, m->value_len);
-    }
-    b->hashes[elem.pos] = k->hash;
 
-    if (m->keys_len + k->len + 1 > m->keys_cap) {
-        m->keys_cap = m->keys_cap * 2;
-        m->keys = realloc(m->keys, m->keys_cap);
-        assert(m->keys != NULL &&
-               "Failed to reallocate memory for keys buffer");
-    }
-    b->keys[elem.pos] = m->keys_len;
-    memcpy(m->keys + m->keys_len, k->data, k->len);
-    m->keys_len += k->len;
-    m->keys[m->keys_len++] = 0;
+    dest = &b->items[found.bpos];
+    dest->hash = found.item.hash;
 
-    if (m->key_size == KEY_SIZE_UNKNOWN) {
-        m->key_size = k->len;
-    } else if (m->key_size != k->len) {
-        m->key_size = KEY_SIZE_MIXED;
-    }
+    itemSetValue(m, dest, v);
+    dest->key = bufferAppendView(&m->buf, k);
 
     ++b->len;
     ++m->len;
 }
 
-/*
- * Increase the map capacity by 2 and rehashs the existing key/value pairs.
- * A pointer to the rehased map is returned.
- * NULL is returned in case of error.
- */
-static void rehash(map_s* m) {
-    map_s tmp;
-    MapIt it = {0};
-    init_map(&tmp, m->value_len, m->capacity * 2);
-    while (mapIter(m, &it)) {
-        key_s k = make_key(&tmp, it.key, it.keyLen);
-        insert(&tmp, &k, it.value);
-    }
-    deinit_map(m);
-    memcpy(m, &tmp, sizeof(map_s));
-}
+static int itemIterate(const Map* map, MapIterator* it) {
+    const HashMap* m = map;
+    size_t bucketsCount = m->bucketsLen;
 
-void mapSet(Map* m, const void* key, size_t keyLen, const void* value) {
-    map_s* map = m;
-    const double load_factor = (double)(map->len) / (double)map->buckets_len;
-    key_s k;
-
-    if (load_factor > MAP_MAX_LOAD_FACTOR) {
-        rehash(map);
-    }
-    k = make_key(map, key, keyLen);
-    insert(map, &k, value);
-}
-
-void* mapAt(const Map* m, const void* key, size_t keyLen) {
-    const map_s* map = m;
-    const key_s k = make_key(m, key, keyLen);
-    const elem_s elem = find_key(m, &k);
-    return elem.found ? bucket_val(map, elem.bucket, elem.pos) : NULL;
-}
-
-int mapDelete(Map* m, const void* key, size_t keyLen) {
-    map_s* map = m;
-    const key_s k = make_key(m, key, keyLen);
-    const elem_s elem = find_key(m, &k);
-
-    if (!elem.found) {
+    if (m->len == 0) {
         return 0;
     }
 
-    if (elem.bucket->len > 1) {
-        const size_t last = elem.bucket->len - 1;
-        elem.bucket->hashes[elem.pos] = elem.bucket->hashes[last];
-        elem.bucket->keys[elem.pos] = elem.bucket->keys[last];
-        memcpy(bucket_val(map, elem.bucket, elem.pos),
-               bucket_val(map, elem.bucket, last), map->value_len);
-    }
-    --elem.bucket->len;
-    --map->len;
-    return 1;
-}
-
-int mapIter(const Map* m, MapIt* it) {
-    const map_s* map = m;
-    const size_t nb_buckets = map->buckets_len;
-
-    if (map->len == 0) {
-        return 0;
+    /* Initialize iterator. */
+    if (it->map != m) {
+        it->map = m;
+        it->bucket = &m->buckets[0];
+        it->bucketPos = 0;
+        it->keyPos = 0;
     }
 
-    if (it->_b == NULL) {
-        it->_b = &map->buckets[0];
-    }
-
-    while (it->_bpos < nb_buckets) {
-        bucket_s* b = it->_b;
-        for (; b != NULL; it->_b = b = b->next, it->_kpos = 0) {
-            if (it->_kpos >= b->len) {
+    while (it->bucketPos < bucketsCount) {
+        const Bucket* b = it->bucket;
+        for (; b != NULL; it->bucket = b = b->next, it->keyPos = 0) {
+            if (it->keyPos >= b->len) {
                 continue;
             }
-            it->key = map->keys + b->keys[it->_kpos];
-            it->keyLen = (map->key_size == KEY_SIZE_MIXED ||
-                          map->key_size == KEY_SIZE_UNKNOWN)
-                             ? (size_t)strlen(it->key)
-                             : (size_t)map->key_size;
-            it->value = bucket_val(map, b, it->_kpos);
-            ++it->_kpos;
+            it->item = &b->items[it->keyPos];
+            ++it->keyPos;
             return 1;
         }
-        it->_kpos = 0;
-        if (++it->_bpos == nb_buckets) {
+        it->keyPos = 0;
+        if (++it->bucketPos == bucketsCount) {
             return 0;
         }
-        it->_b = &map->buckets[it->_bpos];
+        it->bucket = &m->buckets[it->bucketPos];
     }
     return 0;
+}
+
+static void rehash(HashMap* m) {
+    HashMap tmp;
+    MapIterator it = {0};
+
+    init(&tmp, m->cap * 2);
+    while (itemIterate(m, &it)) {
+        const Item* item = it.item;
+        BufferView key = bufferViewFromDescriptor(m->buf, item->key);
+        BufferView value = bufferViewFromDescriptor(m->buf, item->value);
+        insert(&tmp, key, value);
+    }
+    deinit(m);
+    *m = tmp;
+}
+
+void mapSet(Map* map, const void* key, size_t keyLen, const void* value,
+            size_t valueLen) {
+    HashMap* m = map;
+    const double loadFactor = (double)(m->len) / (double)m->bucketsLen;
+    BufferView k;
+    BufferView v;
+
+    k.data = (char*)key;
+    k.len = keyLen;
+    v.data = (char*)value;
+    v.len = valueLen;
+
+    if (loadFactor > MAX_LOAD_FACTOR) {
+        rehash(m);
+    }
+
+    insert(m, k, v);
+}
+
+int mapNextKey(const Map* map, MapIterator* it, void* key, size_t* keyLen) {
+    const HashMap* m = map;
+    const Item* item = NULL;
+    BufferView k;
+
+    if (!itemIterate(map, it)) {
+        return 0;
+    }
+    item = it->item;
+    if (key != NULL) {
+        k = bufferViewFromDescriptor(m->buf, item->key);
+        memcpy(key, k.data, k.len);
+    }
+    if (keyLen != NULL) {
+        *keyLen = k.len;
+    }
+    return 1;
 }
