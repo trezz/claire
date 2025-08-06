@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "iter.h"
+
 static int test_abc(void) {
     const char want[26] = "abcdefghijklmnopqrstuvwxyz";
     char got[26] = {0};
@@ -37,6 +39,19 @@ static int test_abc(void) {
     return 0;
 }
 
+static int test_keysRanger(void* ctx, void* k, size_t klen, void* v,
+                           size_t vlen) {
+    size_t* c = v;
+    size_t* count = ctx;
+    *count += *c;
+
+    (void)k;
+    (void)klen;
+    (void)vlen;
+
+    return 1;
+}
+
 static int test_keys(void) {
     /* Got using `cat ./map/testdata/keys | sort -u | wc -l` */
     const size_t want_unique_keys_count = 573697;
@@ -47,9 +62,6 @@ static int test_keys(void) {
     char line[1024];
     Map* keys_count = mapCreate(0);
     size_t count = 0;
-    MapIterator it = {0};
-    char key[1024];
-    size_t keyLen = 0;
 
     while (fgets(line, sizeof(line), f) != NULL) {
         const size_t len = strlen(line) + 1;
@@ -70,12 +82,7 @@ static int test_keys(void) {
         return 1;
     }
 
-    while (mapNextKey(keys_count, &it, key, &keyLen)) {
-        size_t c;
-        mapGet(keys_count, key, keyLen, &c, NULL);
-        count += c;
-    }
-
+    iterRange2(mapAll(keys_count), &count, test_keysRanger);
     if (count != want_keys_count) {
         printf("Keys count mismatch: want %zu, got %zu\n", want_keys_count,
                count);

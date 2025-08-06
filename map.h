@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "buffer.h"
+#include "iter.h"
 
 /*
  * A generic in-memory key-value store.
@@ -62,23 +63,6 @@ int mapDelete(Map *map, const void *key, size_t keyLen);
 void mapSet(Map *map, const void *key, size_t keyLen, const void *value,
             size_t valueLen);
 
-/*
- * An iterator for traversing the map. Its fields are internal state and should
- * not be modified directly.
- * It is valid to pass an uninitialized iterator to mapNextKey, which will
- * initialize it.
- */
-typedef struct {
-    const Map *map;
-    const void *bucket;
-    const void *item;
-    size_t bucketPos;
-    size_t keyPos;
-} MapIterator;
-
-/*
- * Iterator over the keys of the map.
- */
-int mapNextKey(const Map *map, MapIterator *it, void *key, size_t *keyLen);
+IterSeq2 mapAll(const Map *map);
 
 #endif

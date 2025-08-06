@@ -12,7 +12,7 @@ BIN_DIR = $(BUILD_DIR)/bin
 LIB_DIR = $(BUILD_DIR)/lib
 
 # Source files
-SRCS = hash.c map.c buffer.c
+SRCS = hash.c map.c buffer.c iter.c
 OBJS = $(SRCS:%.c=$(OBJ_DIR)/%.o)
 DEBUG_OBJS = $(SRCS:%.c=$(OBJ_DIR)/debug/%.o)
 
@@ -45,11 +45,11 @@ TEST_MODE ?= prod
 ifeq ($(TEST_MODE),debug)
     TEST_CFLAGS = $(DEBUG_CFLAGS)
     TEST_HASH_DEPS = $(OBJ_DIR)/debug/hash.o
-    TEST_MAP_DEPS = $(OBJ_DIR)/debug/map.o $(OBJ_DIR)/debug/hash.o $(OBJ_DIR)/debug/buffer.o
+    TEST_MAP_DEPS = $(OBJ_DIR)/debug/map.o $(OBJ_DIR)/debug/hash.o $(OBJ_DIR)/debug/buffer.o $(OBJ_DIR)/debug/iter.o
 else
     TEST_CFLAGS = $(CFLAGS)
     TEST_HASH_DEPS = $(OBJ_DIR)/hash.o
-    TEST_MAP_DEPS = $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o $(OBJ_DIR)/buffer.o
+    TEST_MAP_DEPS = $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o $(OBJ_DIR)/buffer.o $(OBJ_DIR)/iter.o
 endif
 
 $(BIN_DIR)/hash_test: hash_test.c $(TEST_HASH_DEPS) | $(BIN_DIR)
@@ -104,10 +104,11 @@ map_test-debug: clean-tests
 	@$(BIN_DIR)/map_test
 
 # Module targets
-.PHONY: hash map buffer
+.PHONY: hash map buffer iter
 hash: $(OBJ_DIR)/hash.o
 map: $(OBJ_DIR)/map.o $(OBJ_DIR)/hash.o
 buffer: $(OBJ_DIR)/buffer.o
+iter: $(OBJ_DIR)/iter.o
 
 # Clean targets
 .PHONY: clean clean-tests

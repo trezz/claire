@@ -8,6 +8,7 @@
 
 #include "buffer.h"
 #include "hash.h"
+#include "iter.h"
 
 #define BUCKET_CAP 8
 #define BUFFER_CAP 1024
@@ -239,20 +240,30 @@ static void insert(HashMap* m, BufferView k, BufferView v) {
     ++m->len;
 }
 
-static int itemIterate(const Map* map, MapIterator* it) {
+typedef struct {
+    const HashMap* map;
+    const Bucket* bucket;
+    const Item* item;
+    size_t bucketPos;
+    size_t keyPos;
+} MapIterator;
+
+MapIterator mapIteratorCreate(const Map* map) {
     const HashMap* m = map;
+    MapIterator it;
+    it.map = m;
+    it.bucket = &m->buckets[0];
+    it.bucketPos = 0;
+    it.keyPos = 0;
+    return it;
+}
+
+int mapIteratorNext(MapIterator* it) {
+    const HashMap* m = it->map;
     size_t bucketsCount = m->bucketsLen;
 
     if (m->len == 0) {
         return 0;
-    }
-
-    /* Initialize iterator. */
-    if (it->map != m) {
-        it->map = m;
-        it->bucket = &m->buckets[0];
-        it->bucketPos = 0;
-        it->keyPos = 0;
     }
 
     while (it->bucketPos < bucketsCount) {
@@ -276,10 +287,10 @@ static int itemIterate(const Map* map, MapIterator* it) {
 
 static void rehash(HashMap* m) {
     HashMap tmp;
-    MapIterator it = {0};
+    MapIterator it = mapIteratorCreate(m);
 
     init(&tmp, m->cap * 2);
-    while (itemIterate(m, &it)) {
+    while (mapIteratorNext(&it)) {
         const Item* item = it.item;
         BufferView key = bufferViewFromDescriptor(m->buf, item->key);
         BufferView value = bufferViewFromDescriptor(m->buf, item->value);
@@ -308,21 +319,36 @@ void mapSet(Map* map, const void* key, size_t keyLen, const void* value,
     insert(m, k, v);
 }
 
-int mapNextKey(const Map* map, MapIterator* it, void* key, size_t* keyLen) {
-    const HashMap* m = map;
-    const Item* item = NULL;
-    BufferView k;
-
-    if (!itemIterate(map, it)) {
-        return 0;
-    }
-    item = it->item;
-    if (key != NULL) {
-        k = bufferViewFromDescriptor(m->buf, item->key);
-        memcpy(key, k.data, k.len);
-    }
+static void* mapIteratorKey(const MapIterator* it, size_t* keyLen) {
     if (keyLen != NULL) {
-        *keyLen = k.len;
+        *keyLen = it->item->key.len;
     }
-    return 1;
+    return bufferDataFromDescriptor(it->map->buf, it->item->key);
+}
+
+static void* mapIteratorValue(const MapIterator* it, size_t* valueLen) {
+    if (valueLen != NULL) {
+        *valueLen = it->item->value.len;
+    }
+    return bufferDataFromDescriptor(it->map->buf, it->item->value);
+}
+
+static void mapYieldAll(void* ctx, IterYielder2* yielder) {
+    MapIterator it = mapIteratorCreate(ctx);
+    size_t keyLen = 0;
+    size_t valueLen = 0;
+    void* key = NULL;
+    void* value = NULL;
+
+    while (mapIteratorNext(&it)) {
+        key = mapIteratorKey(&it, &keyLen);
+        value = mapIteratorValue(&it, &valueLen);
+        if (iterYield2(yielder, key, keyLen, value, valueLen) == 0) {
+            return;
+        }
+    }
+}
+
+IterSeq2 mapAll(const Map* map) {
+    return iterSeq2Create((void*)map, mapYieldAll);
 }
